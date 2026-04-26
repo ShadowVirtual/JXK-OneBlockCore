@@ -1214,15 +1214,8 @@ public class EvolvedSkillsService {
             }
         }
 
-        // Place 3x3 BEDROCK floor for safety net
-        int bx = blockLoc.getBlockX();
-        int by = blockLoc.getBlockY() - 1;
-        int bz = blockLoc.getBlockZ();
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                world.getBlockAt(bx + dx, by, bz + dz).setType(Material.BEDROCK, false);
-            }
-        }
+        // Single BEDROCK block directly under the oneblock
+        world.getBlockAt(blockLoc.getBlockX(), blockLoc.getBlockY() - 1, blockLoc.getBlockZ()).setType(Material.BEDROCK, false);
 
         // Place first configured oneblock material as the starter block
         WeightedMaterial starterWM = chooseOneBlockWeightedMaterial(0, 0, 0);
@@ -2607,10 +2600,12 @@ public class EvolvedSkillsService {
         final Material displayMaterial = (mobToSpawn != null || UNSTABLE_BLOCK_TYPES.contains(nextMaterial))
                 ? config.oneBlockFallbackMaterial : nextMaterial;
 
-        block.setType(displayMaterial);
-        if (mobToSpawn != null) {
-            spawnMobFromOneBlock(block, mobToSpawn, islandState);
-        }
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            block.setType(displayMaterial, false);
+            if (mobToSpawn != null) {
+                spawnMobFromOneBlock(block, mobToSpawn, islandState);
+            }
+        });
     }
 
     private boolean isOneBlockAnchorBreak(Block block, IslandState islandState) {
