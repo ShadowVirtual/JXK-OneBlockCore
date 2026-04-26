@@ -1,0 +1,53 @@
+# ────────────────────────────────────────────────────────────────────────────
+# ITEM TEMPLATES
+# ────────────────────────────────────────────────────────────────────────────
+# Defines the appearance of custom items used by EvolvedSkills.
+# %type% is replaced with the node/spawner display name at runtime.
+#
+# fragment      — Resource Fragment dropped from breaks/harvests/kills.
+#                 Used as upgrade currency for limits and growth caps.
+# nodes         — Node Seed item crafted from 8 fragments (ring recipe).
+#                 Place on island to create a Resource Node.
+# spawners      — Spawner Core item crafted from fragments.
+#                 Place on island to create an Evolved Spawner.
+# generators    — Generator block item given via admin command.
+#                 Place on island to produce resources passively.
+#
+# Item fields:
+#   material        Bukkit Material for the base item.
+#   name            Display name (supports & color codes).
+#   lore            List of lore lines (supports & color codes).
+#   custom-model-data  (Optional) Custom Model Data integer for resource pack textures.
+# ────────────────────────────────────────────────────────────────────────────
+
+fragment:
+  material: PRISMARINE_SHARD
+  name: '&b%type% ꜰʀᴀɢᴍᴇɴᴛ'
+  lore:
+  - '&7A crafting material gathered from your'
+  - '&7island resources. Used to craft nodes,'
+  - '&7expand limits, and upgrade growth caps.'
+nodes:
+  material: NETHER_STAR
+  name: '&e%type% ɴᴏᴅᴇ'
+  lore:
+  - '&7Place on your island to create a'
+  - '&7permanent resource node that respawns'
+  - '&7after each harvest.'
+  - '&7'
+  - '&bʀɪɢʜᴛ-ᴄʟɪᴄᴋ &7to harvest the node.'
+  - '&bꜱʜɪꜰᴛ-ᴍɪɴᴇ &7to reclaim this node.'
+spawners:
+  material: SPAWNER
+  name: '&e%type% ꜱᴘᴀᴡɴᴇʀ'
+  lore:
+  - '&7Place on your island to spawn mobs.'
+  - '&7Limited by your island''s Spawner Limit.'
+  - '&7'
+  - '&bꜱʜɪꜰᴛ-ᴍɪɴᴇ &7to reclaim this spawner.'
+treasure:
+  material: TRIPWIRE_HOOK
+  name: '&e%pool% ᴛʀᴇᴀꜱᴜʀᴇ ᴛᴏᴋᴇɴ'
+  lore:
+  - '&7A bonus item found while harvesting'
+  - '&7resources from your island.'

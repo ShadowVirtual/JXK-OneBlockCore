@@ -1,0 +1,1192 @@
+package com.bgsoftware.superiorskyblock.player;
+
+import com.bgsoftware.common.annotations.Nullable;
+import com.bgsoftware.superiorskyblock.SuperiorSkyblockPlugin;
+import com.bgsoftware.superiorskyblock.api.data.DatabaseBridge;
+import com.bgsoftware.superiorskyblock.api.data.DatabaseBridgeMode;
+import com.bgsoftware.superiorskyblock.api.enums.BorderColor;
+import com.bgsoftware.superiorskyblock.api.enums.HitActionResult;
+import com.bgsoftware.superiorskyblock.api.island.Island;
+import com.bgsoftware.superiorskyblock.api.island.IslandPrivilege;
+import com.bgsoftware.superiorskyblock.api.island.PlayerRole;
+import com.bgsoftware.superiorskyblock.api.menu.view.MenuView;
+import com.bgsoftware.superiorskyblock.api.missions.Mission;
+import com.bgsoftware.superiorskyblock.api.persistence.PersistentDataContainer;
+import com.bgsoftware.superiorskyblock.api.player.PlayerStatus;
+import com.bgsoftware.superiorskyblock.api.player.algorithm.PlayerTeleportAlgorithm;
+import com.bgsoftware.superiorskyblock.api.player.cache.PlayerCache;
+import com.bgsoftware.superiorskyblock.api.world.Dimension;
+import com.bgsoftware.superiorskyblock.api.wrappers.BlockPosition;
+import com.bgsoftware.superiorskyblock.api.wrappers.SuperiorPlayer;
+import com.bgsoftware.superiorskyblock.core.Counter;
+import com.bgsoftware.superiorskyblock.core.LazyReference;
+import com.bgsoftware.superiorskyblock.core.ObjectsPools;
+import com.bgsoftware.superiorskyblock.core.SBlockPosition;
+import com.bgsoftware.superiorskyblock.core.SequentialListBuilder;
+import com.bgsoftware.superiorskyblock.core.config.PvPWorldsCache;
+import com.bgsoftware.superiorskyblock.core.database.bridge.IslandsDatabaseBridge;
+import com.bgsoftware.superiorskyblock.core.database.bridge.PlayersDatabaseBridge;
+import com.bgsoftware.superiorskyblock.core.events.plugin.PluginEventType;
+import com.bgsoftware.superiorskyblock.core.events.plugin.PluginEventsDispatcher;
+import com.bgsoftware.superiorskyblock.core.logging.Debug;
+import com.bgsoftware.superiorskyblock.core.logging.Log;
+import com.bgsoftware.superiorskyblock.island.flag.IslandFlags;
+import com.bgsoftware.superiorskyblock.island.role.SPlayerRole;
+import com.bgsoftware.superiorskyblock.mission.MissionData;
+import com.bgsoftware.superiorskyblock.mission.MissionReference;
+import com.bgsoftware.superiorskyblock.player.builder.SuperiorPlayerBuilderImpl;
+import com.bgsoftware.superiorskyblock.player.cache.PlayerCacheImpl;
+import com.bgsoftware.superiorskyblock.player.permissions.PlayerPermissionsStore;
+import com.bgsoftware.superiorskyblock.world.Dimensions;
+import com.google.common.base.Preconditions;
+import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
+import org.bukkit.Location;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.World;
+import org.bukkit.block.Block;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.InventoryHolder;
+import org.bukkit.inventory.InventoryView;
+import org.bukkit.scheduler.BukkitTask;
+
+import java.lang.ref.WeakReference;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
+import java.util.function.Function;
+
+public class SSuperiorPlayer implements SuperiorPlayer {
+
+    private static final SuperiorSkyblockPlugin plugin = SuperiorSkyblockPlugin.getPlugin();
+
+    private static PvPWorldsCache pvpWorldsCache = null;
+
+    private final DatabaseBridge databaseBridge;
+    private final PlayerTeleportAlgorithm playerTeleportAlgorithm;
+    @Nullable
+    private PersistentDataContainer persistentDataContainer; // Lazy loading
+    private final LazyReference<PlayerCache> playerCache = new LazyReference<PlayerCache>() {
+        @Override
+        protected PlayerCache create() {
+            return new PlayerCacheImpl(SSuperiorPlayer.this);
+        }
+    };
+    private final PlayerPermissionsStore permissionsStore;
+
+    private final Map<MissionReference, Counter> completedMissions = new ConcurrentHashMap<>();
+    private final List<UUID> pendingInvites = new LinkedList<>();
+    private final List<Island> coopIslands = new LinkedList<>();
+
+    private final UUID uuid;
+
+    private Island playerIsland = null;
+    private String name;
+    private String textureValue;
+    private WeakReference<PlayerRole> playerRole;
+    private int playerRoleId;
+    private java.util.Locale userLocale;
+
+    private boolean worldBorderEnabled;
+    private boolean blocksStackerEnabled = plugin.getSettings().isDefaultStackedBlocks();
+    private boolean schematicModeEnabled = false;
+    private boolean bypassModeEnabled = false;
+    private boolean teamChatEnabled = false;
+    private boolean toggledPanel;
+    private boolean islandFly;
+    private boolean adminSpyEnabled = false;
+
+    private SBlockPosition schematicPos1 = null;
+    private SBlockPosition schematicPos2 = null;
+    private int disbands;
+    private BorderColor borderColor;
+    private long lastTimeStatus;
+
+    private BukkitTask teleportTask = null;
+    private EnumSet<PlayerStatus> playerStatuses = EnumSet.noneOf(PlayerStatus.class);
+
+    public SSuperiorPlayer(SuperiorPlayerBuilderImpl builder) {
+        this.uuid = builder.uuid;
+        this.name = builder.name;
+        setPlayerRoleInternal(builder.playerRole);
+        this.disbands = builder.disbands;
+        this.userLocale = builder.locale;
+        this.textureValue = builder.textureValue;
+        this.lastTimeStatus = builder.lastTimeUpdated;
+        this.toggledPanel = builder.toggledPanel;
+        this.islandFly = builder.islandFly;
+        this.borderColor = builder.borderColor;
+        this.worldBorderEnabled = builder.worldBorderEnabled;
+        this.completedMissions.putAll(builder.completedMissions);
+        if (builder.persistentData.length > 0)
+            getPersistentDataContainer().load(builder.persistentData);
+
+        this.databaseBridge = plugin.getFactory().createDatabaseBridge(this);
+        this.playerTeleportAlgorithm = plugin.getFactory().createPlayerTeleportAlgorithm(this);
+        this.permissionsStore = new PlayerPermissionsStore(this);
+
+        databaseBridge.setDatabaseBridgeMode(DatabaseBridgeMode.SAVE_DATA);
+    }
+
+    /*
+     *   General Methods
+     */
+
+    private static HitActionResult checkPvPAllow(SuperiorPlayer player, boolean target) {
+        // Checks for online status
+        if (!player.isOnline())
+            return target ? HitActionResult.TARGET_NOT_ONLINE : HitActionResult.NOT_ONLINE;
+
+        // Checks for pvp warm-up
+        if (player.hasPlayerStatus(PlayerStatus.PVP_IMMUNED))
+            return target ? HitActionResult.TARGET_PVP_WARMUP : HitActionResult.PVP_WARMUP;
+
+        // We do not care about spawn island when spawn protection is disabled,
+        // and therefore only island worlds are relevant.
+        if (!plugin.getSettings().getSpawn().isProtected() && !plugin.getGrid().isIslandsWorld(player.getWorld()))
+            return HitActionResult.SUCCESS;
+
+        Island standingIsland;
+        try (ObjectsPools.Wrapper<Location> wrapper = ObjectsPools.LOCATION.obtain()) {
+            standingIsland = plugin.getGrid().getIslandAt(player.getLocation(wrapper.getHandle()));
+        }
+
+        if (standingIsland != null && (plugin.getSettings().getSpawn().isProtected() || !standingIsland.isSpawn())) {
+            // Checks for pvp status
+            if (!standingIsland.hasSettingsEnabled(IslandFlags.PVP))
+                return target ? HitActionResult.TARGET_ISLAND_PVP_DISABLE : HitActionResult.ISLAND_PVP_DISABLE;
+
+            if (!plugin.getSettings().isCoopDamage() && standingIsland.isCoop(player)) {
+                // Checks for coop damage
+                return target ? HitActionResult.TARGET_COOP_DAMAGE : HitActionResult.COOP_DAMAGE;
+            } else if (!plugin.getSettings().isVisitorsDamage() && standingIsland.isVisitor(player, true)) {
+                // Checks for visitors damage
+                return target ? HitActionResult.TARGET_VISITOR_DAMAGE : HitActionResult.VISITOR_DAMAGE;
+            }
+        }
+
+        return HitActionResult.SUCCESS;
+    }
+
+    @Override
+    public UUID getUniqueId() {
+        return uuid;
+    }
+
+    @Override
+    public String getName() {
+        return name;
+    }
+
+    @Override
+    public PlayerCache getCache() {
+        return this.playerCache.get();
+    }
+
+    @Override
+    public String getTextureValue() {
+        return textureValue;
+    }
+
+    @Override
+    public void setTextureValue(String textureValue) {
+        Preconditions.checkNotNull(textureValue, "textureValue parameter cannot be null.");
+
+        Log.debug(Debug.SET_TEXTURE_VALUE, getName(), textureValue);
+
+        String oldTextureValue = this.textureValue;
+
+        // We first update the texture value, even if they are equal.
+        this.textureValue = textureValue;
+
+        // We now compare them but remove the timestamp when comparing.
+        if (Objects.equals(removeTextureValueTimeStamp(oldTextureValue), removeTextureValueTimeStamp(textureValue)))
+            return;
+
+        // We only save the value if it's actually different.
+        PlayersDatabaseBridge.saveTextureValue(this);
+    }
+
+    @Override
+    public void updateLastTimeStatus() {
+        setLastTimeStatus(System.currentTimeMillis() / 1000);
+    }
+
+    @Override
+    public void setLastTimeStatus(long lastTimeStatus) {
+        Log.debug(Debug.SET_PLAYER_LAST_TIME_UPDATED, getName(), lastTimeStatus);
+
+        if (this.lastTimeStatus == lastTimeStatus)
+            return;
+
+        this.lastTimeStatus = lastTimeStatus;
+
+        PlayersDatabaseBridge.saveLastTimeStatus(this);
+    }
+
+    @Override
+    public long getLastTimeStatus() {
+        return lastTimeStatus;
+    }
+
+    @Override
+    public void updateName() {
+        Player player = asPlayer();
+        if (player != null)
+            this.setName(player.getName());
+    }
+
+    @Override
+    public void setName(String name) {
+        Preconditions.checkNotNull(name, "name parameter cannot be null.");
+
+        if (Objects.equals(this.name, name))
+            return;
+
+        try {
+            plugin.getPlayers().getPlayersContainer().removePlayer(this);
+            this.name = name;
+            PlayersDatabaseBridge.savePlayerName(this);
+        } finally {
+            plugin.getPlayers().getPlayersContainer().addPlayer(this);
+        }
+    }
+
+    @Override
+    public Player asPlayer() {
+        return Bukkit.getPlayer(uuid);
+    }
+
+    @Override
+    public OfflinePlayer asOfflinePlayer() {
+        return Bukkit.getOfflinePlayer(uuid);
+    }
+
+    @Override
+    public boolean isOnline() {
+        OfflinePlayer offlinePlayer = asOfflinePlayer();
+        return offlinePlayer != null && offlinePlayer.isOnline();
+    }
+
+    @Override
+    public void runIfOnline(Consumer<Player> toRun) {
+        Player player = asPlayer();
+        if (player != null)
+            toRun.accept(player);
+    }
+
+    @Override
+    public boolean hasFlyGamemode() {
+        Player player = asPlayer();
+        return player != null && (player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR);
+    }
+
+    @Nullable
+    @Override
+    public MenuView<?, ?> getOpenedView() {
+        Player player = asPlayer();
+
+        if (player != null) {
+            InventoryView openInventory = player.getOpenInventory();
+            if (openInventory != null && openInventory.getTopInventory() != null) {
+                InventoryHolder inventoryHolder = openInventory.getTopInventory().getHolder();
+                if (inventoryHolder instanceof MenuView)
+                    return (MenuView<?, ?>) inventoryHolder;
+            }
+        }
+
+        return null;
+    }
+
+    @Override
+    public boolean isAFK() {
+        Player player = asPlayer();
+        return player != null && plugin.getProviders().isAFK(player);
+    }
+
+    @Override
+    public boolean isVanished() {
+        Player player = asPlayer();
+        return player != null && plugin.getProviders().getVanishProvider().isVanished(player);
+    }
+
+    @Override
+    public boolean isShownAsOnline() {
+        Player player = asPlayer();
+        return player != null && player.getGameMode() != GameMode.SPECTATOR && !isVanished();
+    }
+
+    @Override
+    public boolean hasPermission(String permission) {
+        Preconditions.checkNotNull(permission, "permission parameter cannot be null.");
+
+        Log.debugResult(Debug.PERMISSION_LOOKUP, "Checking for permission", permission);
+
+        if (permission.isEmpty())
+            return true;
+
+        Log.debug(Debug.PERMISSION_LOOKUP, getName(), permission);
+
+        Player player = asPlayer();
+        if (player == null) {
+            Log.debugResult(Debug.PERMISSION_LOOKUP, "Result", "Player is not online");
+            return false;
+        }
+
+        boolean res = player.hasPermission(permission);
+
+        Log.debugResult(Debug.PERMISSION_LOOKUP, "Result", res);
+
+        return res;
+    }
+
+    @Override
+    public boolean hasPermissionWithoutOP(String permission) {
+        Preconditions.checkNotNull(permission, "permission parameter cannot be null.");
+
+        Log.debugResult(Debug.PERMISSION_LOOKUP, "Checking for permission", permission);
+
+        if (permission.isEmpty())
+            return true;
+
+        Log.debug(Debug.PERMISSION_LOOKUP, getName(), permission, "No-Op Check");
+
+        Player player = asPlayer();
+
+        PlayerPermissionsStore.PermissionResult permissionResult =
+                this.permissionsStore.hasCustomPermission(player, permission);
+
+        Log.debugResult(Debug.PERMISSION_LOOKUP, "Result", permissionResult);
+
+        return permissionResult == PlayerPermissionsStore.PermissionResult.PRIVILEGED;
+    }
+
+    @Override
+    public boolean hasPermission(IslandPrivilege permission) {
+        Preconditions.checkNotNull(permission, "permission parameter cannot be null.");
+        Island island = getIsland();
+        return island != null && island.hasPermission(this, permission);
+    }
+
+    @Override
+    public boolean hasBypassPermission(IslandPrivilege permission) {
+        Preconditions.checkNotNull(permission, "permission parameter cannot be null.");
+
+        Log.debugResult(Debug.PERMISSION_LOOKUP, "Checking for IslandPrivilege bypass permission", permission);
+
+        Player player = asPlayer();
+
+        PlayerPermissionsStore.PermissionResult permissionResult =
+                this.permissionsStore.hasBypassPermission(player, permission);
+
+        Log.debugResult(Debug.PERMISSION_LOOKUP, "Result", permissionResult);
+
+        return permissionResult == PlayerPermissionsStore.PermissionResult.PRIVILEGED;
+    }
+
+    /*
+     *   Location Methods
+     */
+
+    @Override
+    public HitActionResult canHit(SuperiorPlayer otherPlayer) {
+        Preconditions.checkNotNull(otherPlayer, "otherPlayer parameter cannot be null.");
+
+        // Players can hit themselves
+        if (equals(otherPlayer))
+            return HitActionResult.SUCCESS;
+
+        World world = getWorld();
+
+        // Checks for island teammates pvp
+        Island island = getIsland();
+        if (island != null && island == otherPlayer.getIsland() && (world == null || !isPvPWorldInternal(world.getName())))
+            return HitActionResult.ISLAND_TEAM_PVP;
+
+        // Checks if this player can bypass all pvp restrictions
+        {
+            HitActionResult selfResult = checkPvPAllow(this, false);
+            if (selfResult != HitActionResult.SUCCESS)
+                return selfResult;
+        }
+
+        // Checks if target player can bypass all pvp restrictions
+        {
+            HitActionResult targetResult = checkPvPAllow(otherPlayer, true);
+            if (targetResult != HitActionResult.SUCCESS)
+                return targetResult;
+        }
+
+        return HitActionResult.SUCCESS;
+    }
+
+    @Override
+    public World getWorld() {
+        Player player = asPlayer();
+        return player == null ? null : player.getWorld();
+    }
+
+    @Override
+    public Location getLocation() {
+        Player player = asPlayer();
+        return player == null ? null : player.getLocation();
+    }
+
+    @Override
+    public Location getLocation(@Nullable Location location) {
+        if (location != null) {
+            Player player = asPlayer();
+            if (player != null)
+                player.getLocation(location);
+        }
+
+        return location;
+    }
+
+    @Override
+    public void teleport(Location location) {
+        teleport(location, null);
+    }
+
+    @Override
+    public void teleport(Location location, @Nullable Consumer<Boolean> teleportResult) {
+        Player player = asPlayer();
+        if (player != null) {
+            playerTeleportAlgorithm.teleport(player, location).whenComplete((result, error) -> {
+                if (teleportResult != null)
+                    teleportResult.accept(error == null && result);
+            });
+        } else if (teleportResult != null) {
+            teleportResult.accept(false);
+        }
+    }
+
+    @Override
+    public void teleport(Island island) {
+        this.teleport(island, (Consumer<Boolean>) null);
+    }
+
+    @Override
+    public void teleport(Island island, Dimension dimension) {
+        this.teleport(island, dimension, null);
+    }
+
+    @Override
+    public void teleport(Island island, @Nullable Consumer<Boolean> teleportResult) {
+        this.teleport(island, plugin.getSettings().getWorlds().getDefaultWorldDimension(), teleportResult);
+    }
+
+    @Override
+    public void teleport(Island island, Dimension dimension, @Nullable Consumer<Boolean> teleportResult) {
+        Player player = asPlayer();
+        if (player != null) {
+            setPlayerStatus(PlayerStatus.FALL_DAMAGE_IMMUNED);
+            playerTeleportAlgorithm.teleport(player, island, dimension).whenComplete((result, error) -> {
+                boolean successful = error == null && result;
+
+                player.setFallDistance(0f);
+                removePlayerStatus(PlayerStatus.FALL_DAMAGE_IMMUNED);
+
+                if (teleportResult != null)
+                    teleportResult.accept(successful);
+            });
+        } else if (teleportResult != null) {
+            teleportResult.accept(false);
+        }
+    }
+
+    @Override
+    @Deprecated
+    public void teleport(Island island, World.Environment environment) {
+        teleport(island, Dimensions.fromEnvironment(environment));
+    }
+
+    @Override
+    @Deprecated
+    public void teleport(Island island, World.Environment environment, @Nullable Consumer<Boolean> teleportResult) {
+        teleport(island, Dimensions.fromEnvironment(environment), teleportResult);
+    }
+
+    @Override
+    public boolean isInsideIsland() {
+        Player player = asPlayer();
+        Island island = getIsland();
+        try (ObjectsPools.Wrapper<Location> wrapper = ObjectsPools.LOCATION.obtain()) {
+            return player != null && island != null && island.isInside(player.getLocation(wrapper.getHandle()));
+        }
+    }
+
+    /*
+     *   Island Methods
+     */
+
+    @Override
+    public SuperiorPlayer getIslandLeader() {
+        Island island = getIsland();
+        return island == null ? this : island.getOwner();
+    }
+
+    @Override
+    public void setIslandLeader(SuperiorPlayer islandLeader) {
+        setIsland(islandLeader.getIsland());
+    }
+
+    @Override
+    public Island getIsland() {
+        return playerIsland;
+    }
+
+    @Override
+    public void setIsland(Island island) {
+        Log.debug(Debug.SET_PLAYER_ISLAND, getName(), island == null ? "null" : island.getOwner().getName());
+
+        this.playerIsland = island;
+
+        if (this.playerIsland == null) {
+            setPlayerRoleInternal(null);
+        }
+
+    }
+
+    @Override
+    public boolean hasIsland() {
+        return getIsland() != null;
+    }
+
+    @Override
+    public void addInvite(Island island) {
+        this.pendingInvites.add(island.getUniqueId());
+    }
+
+    @Override
+    public void removeInvite(Island island) {
+        this.pendingInvites.remove(island.getUniqueId());
+    }
+
+    @Override
+    public List<Island> getInvites() {
+        return new SequentialListBuilder<UUID>()
+                .map(this.pendingInvites, uuid -> plugin.getGrid().getIslandByUUID(uuid));
+    }
+
+    @Override
+    public void addCoop(Island island) {
+        Preconditions.checkNotNull(island, "island parameter cannot be null");
+        Preconditions.checkArgument(island.isCoop(this), "player is not coop of given island");
+        this.coopIslands.add(island);
+    }
+
+    @Override
+    public void removeCoop(Island island) {
+        Preconditions.checkNotNull(island, "island parameter cannot be null");
+        this.coopIslands.remove(island);
+    }
+
+    @Override
+    public List<Island> getCoopIslands() {
+        return new SequentialListBuilder<Island>().build(this.coopIslands);
+    }
+
+    @Override
+    public PlayerRole getPlayerRole() {
+        PlayerRole playerRole = this.playerRole.get();
+
+        if (playerRole == null) {
+            // Reference doesn't exist anymore, let's get it from roles manager again
+            playerRole = plugin.getRoles().getPlayerRoleFromId(this.playerRoleId);
+            this.playerRole = new WeakReference<>(playerRole);
+        }
+
+        if (this.playerIsland == null && playerRole != SPlayerRole.guestRole()) {
+            setPlayerRoleInternal(null);
+            playerRole = this.playerRole.get();
+        }
+
+        return playerRole;
+    }
+
+    @Override
+    public void setPlayerRole(PlayerRole playerRole) {
+        Preconditions.checkNotNull(playerRole, "playerRole parameter cannot be null.");
+
+        Log.debug(Debug.SET_PLAYER_ROLE, getName(), playerRole.getName());
+
+        setPlayerRoleInternal(playerRole);
+
+        Island island = getIsland();
+        if (island != null && island.getOwner() != this)
+            IslandsDatabaseBridge.saveMemberRole(island, this);
+    }
+
+    @Override
+    public int getDisbands() {
+        return disbands;
+    }
+
+    @Override
+    public void setDisbands(int disbands) {
+        Log.debug(Debug.SET_DISBANDS, getName(), disbands);
+
+        if (this.disbands == disbands)
+            return;
+
+        this.disbands = disbands;
+
+        PlayersDatabaseBridge.saveDisbands(this);
+    }
+
+    @Override
+    public boolean hasDisbands() {
+        return disbands > 0;
+    }
+
+    /*
+     *   Preferences Methods
+     */
+
+    @Override
+    public java.util.Locale getUserLocale() {
+        if (userLocale == null)
+            userLocale = PlayerLocales.getDefaultLocale();
+        return userLocale;
+    }
+
+    @Override
+    public void setUserLocale(java.util.Locale userLocale) {
+        Preconditions.checkNotNull(userLocale, "userLocale parameter cannot be null.");
+        Preconditions.checkArgument(PlayerLocales.isValidLocale(userLocale), "Locale " + userLocale + " is not a valid locale.");
+
+        Log.debug(Debug.SET_LANGUAGE, getName(), userLocale.getLanguage() + "-" + userLocale.getCountry());
+
+        if (Objects.equals(this.userLocale, userLocale))
+            return;
+
+        this.userLocale = userLocale;
+
+        PlayersDatabaseBridge.saveUserLocale(this);
+    }
+
+    @Override
+    public boolean hasWorldBorderEnabled() {
+        return worldBorderEnabled;
+    }
+
+    @Override
+    public void toggleWorldBorder() {
+        setWorldBorderEnabled(!worldBorderEnabled);
+    }
+
+    @Override
+    public void setWorldBorderEnabled(boolean enabled) {
+        Log.debug(Debug.SET_TOGGLED_BORDER, getName(), enabled);
+
+        if (this.worldBorderEnabled == enabled)
+            return;
+
+        this.worldBorderEnabled = enabled;
+        PlayersDatabaseBridge.saveToggledBorder(this);
+    }
+
+    @Override
+    public void updateWorldBorder(@Nullable Island island) {
+        plugin.getNMSWorld().setWorldBorder(this, island);
+    }
+
+    @Override
+    public boolean hasBlocksStackerEnabled() {
+        return blocksStackerEnabled;
+    }
+
+    @Override
+    public void toggleBlocksStacker() {
+        setBlocksStacker(!blocksStackerEnabled);
+    }
+
+    @Override
+    public void setBlocksStacker(boolean enabled) {
+        Log.debug(Debug.SET_TOGGLED_STACKER, getName(), enabled);
+        blocksStackerEnabled = enabled;
+    }
+
+    @Override
+    public boolean hasSchematicModeEnabled() {
+        return schematicModeEnabled;
+    }
+
+    @Override
+    public void toggleSchematicMode() {
+        setSchematicMode(!schematicModeEnabled);
+    }
+
+    @Override
+    public void setSchematicMode(boolean enabled) {
+        Log.debug(Debug.SET_TOGGLED_SCHEMATIC, getName(), enabled);
+        schematicModeEnabled = enabled;
+    }
+
+    @Override
+    public boolean hasTeamChatEnabled() {
+        return teamChatEnabled;
+    }
+
+    @Override
+    public void toggleTeamChat() {
+        setTeamChat(!teamChatEnabled);
+    }
+
+    @Override
+    public void setTeamChat(boolean enabled) {
+        Log.debug(Debug.SET_TEAM_CHAT, getName(), enabled);
+        teamChatEnabled = enabled;
+    }
+
+    @Override
+    public boolean hasBypassModeEnabled() {
+        Player player = asPlayer();
+
+        if (bypassModeEnabled && player != null && !player.hasPermission("superior.admin.bypass"))
+            bypassModeEnabled = false;
+
+        return bypassModeEnabled;
+    }
+
+    @Override
+    public void toggleBypassMode() {
+        setBypassMode(!bypassModeEnabled);
+    }
+
+    @Override
+    public void setBypassMode(boolean enabled) {
+        Log.debug(Debug.SET_ADMIN_BYPASS, getName(), enabled);
+        bypassModeEnabled = enabled;
+    }
+
+    @Override
+    public boolean hasToggledPanel() {
+        return toggledPanel;
+    }
+
+    @Override
+    public void setToggledPanel(boolean toggledPanel) {
+        Log.debug(Debug.SET_TOGGLED_PANEL, getName(), toggledPanel);
+
+        if (this.toggledPanel == toggledPanel)
+            return;
+
+        this.toggledPanel = toggledPanel;
+        PlayersDatabaseBridge.saveToggledPanel(this);
+    }
+
+    @Override
+    public boolean hasIslandFlyEnabled() {
+        Player player = asPlayer();
+
+        if (islandFly && player != null && !player.hasPermission("superior.island.fly")) {
+            islandFly = false;
+            if (player.getAllowFlight()) {
+                player.setFlying(false);
+                player.setAllowFlight(false);
+            }
+        }
+
+        return islandFly;
+    }
+
+    @Override
+    public void toggleIslandFly() {
+        setIslandFly(!islandFly);
+    }
+
+    @Override
+    public void setIslandFly(boolean enabled) {
+        Log.debug(Debug.SET_ISLAND_FLY, getName(), enabled);
+
+        if (this.islandFly == enabled)
+            return;
+
+        this.islandFly = enabled;
+        PlayersDatabaseBridge.saveIslandFly(this);
+    }
+
+    @Override
+    public boolean hasAdminSpyEnabled() {
+        return adminSpyEnabled;
+    }
+
+    @Override
+    public void toggleAdminSpy() {
+        setAdminSpy(!adminSpyEnabled);
+    }
+
+    @Override
+    public void setAdminSpy(boolean enabled) {
+        Log.debug(Debug.SET_ADMIN_SPY, getName(), enabled);
+        adminSpyEnabled = enabled;
+    }
+
+    @Override
+    public BorderColor getBorderColor() {
+        return borderColor;
+    }
+
+    @Override
+    public void setBorderColor(BorderColor borderColor) {
+        Preconditions.checkNotNull(borderColor, "borderColor parameter cannot be null.");
+
+        Log.debug(Debug.SET_BORDER_COLOR, getName(), borderColor);
+
+        if (this.borderColor == borderColor)
+            return;
+
+        this.borderColor = borderColor;
+        PlayersDatabaseBridge.saveBorderColor(this);
+    }
+
+    /*
+     *   Schematics Methods
+     */
+
+    @Override
+    public BlockPosition getSchematicPos1() {
+        return schematicPos1;
+    }
+
+    @Override
+    public void setSchematicPos1(@Nullable Block block) {
+        try (ObjectsPools.Wrapper<Location> wrapper = ObjectsPools.LOCATION.obtain()) {
+            Log.debug(Debug.SET_SCHEMATIC_POSITION, getName(), block == null ? "null" : block.getLocation(wrapper.getHandle()));
+        }
+        this.schematicPos1 = block == null ? null : SBlockPosition.of(block);
+    }
+
+    @Override
+    public SBlockPosition getSchematicPos2() {
+        return schematicPos2;
+    }
+
+    @Override
+    public void setSchematicPos2(@Nullable Block block) {
+        try (ObjectsPools.Wrapper<Location> wrapper = ObjectsPools.LOCATION.obtain()) {
+            Log.debug(Debug.SET_SCHEMATIC_POSITION, getName(), block == null ? "null" : block.getLocation(wrapper.getHandle()));
+        }
+        this.schematicPos2 = block == null ? null : SBlockPosition.of(block);
+    }
+
+    /*
+     *   Missions Methods
+     */
+
+    /*
+     *   Data Methods
+     */
+
+    @Override
+    @Deprecated
+    public boolean isImmunedToPvP() {
+        return this.hasPlayerStatus(PlayerStatus.PVP_IMMUNED);
+    }
+
+    @Override
+    @Deprecated
+    public void setImmunedToPvP(boolean immunedToPvP) {
+        if (immunedToPvP)
+            setPlayerStatus(PlayerStatus.PVP_IMMUNED);
+        else
+            removePlayerStatus(PlayerStatus.PVP_IMMUNED);
+    }
+
+    @Override
+    @Deprecated
+    public boolean isLeavingFlag() {
+        return this.hasPlayerStatus(PlayerStatus.LEAVING_ISLAND);
+    }
+
+    @Override
+    @Deprecated
+    public void setLeavingFlag(boolean leavingFlag) {
+        if (leavingFlag)
+            setPlayerStatus(PlayerStatus.LEAVING_ISLAND);
+        else
+            removePlayerStatus(PlayerStatus.LEAVING_ISLAND);
+    }
+
+    @Override
+    public boolean isImmunedToPortals() {
+        return this.hasPlayerStatus(PlayerStatus.PORTALS_IMMUNED);
+    }
+
+    @Override
+    public void setImmunedToPortals(boolean immuneToTeleport) {
+        if (immuneToTeleport)
+            setPlayerStatus(PlayerStatus.PORTALS_IMMUNED);
+        else
+            removePlayerStatus(PlayerStatus.PORTALS_IMMUNED);
+    }
+
+    @Override
+    public BukkitTask getTeleportTask() {
+        return teleportTask;
+    }
+
+    @Override
+    public void setTeleportTask(BukkitTask teleportTask) {
+        if (this.teleportTask != null)
+            this.teleportTask.cancel();
+        this.teleportTask = teleportTask;
+    }
+
+    @Override
+    public PlayerStatus getPlayerStatus() {
+        for (PlayerStatus playerStatus : PlayerStatus.values()) {
+            if (this.playerStatuses.contains(playerStatus))
+                return playerStatus;
+        }
+
+        return PlayerStatus.NONE;
+    }
+
+    @Override
+    public void setPlayerStatus(PlayerStatus playerStatus) {
+        Preconditions.checkNotNull(playerStatus, "playerStatus cannot be null");
+        Preconditions.checkArgument(playerStatus != PlayerStatus.NONE, "Cannot set PlayerStatus.NONE");
+
+        if (this.hasPlayerStatus(playerStatus))
+            return;
+
+        Log.debug(Debug.SET_PLAYER_STATUS, getName(), playerStatus.name());
+        this.playerStatuses.add(playerStatus);
+    }
+
+    @Override
+    public void removePlayerStatus(PlayerStatus playerStatus) {
+        Preconditions.checkNotNull(playerStatus, "playerStatus cannot be null");
+        Preconditions.checkArgument(playerStatus != PlayerStatus.NONE, "Cannot remove PlayerStatus.NONE");
+
+        if (!this.hasPlayerStatus(playerStatus))
+            return;
+
+        Log.debug(Debug.REMOVE_PLAYER_STATUS, getName(), playerStatus.name());
+        this.playerStatuses.remove(playerStatus);
+    }
+
+    @Override
+    public boolean hasPlayerStatus(PlayerStatus playerStatus) {
+        Preconditions.checkNotNull(playerStatus, "playerStatus cannot be null");
+        Preconditions.checkArgument(playerStatus != PlayerStatus.NONE, "Cannot check PlayerStatus.NONE");
+        return this.playerStatuses.contains(playerStatus);
+    }
+
+    @Override
+    public void merge(SuperiorPlayer otherPlayer) {
+        Preconditions.checkNotNull(otherPlayer, "otherPlayer parameter cannot be null.");
+
+        this.name = otherPlayer.getName();
+        this.playerIsland = otherPlayer.getIsland();
+        setPlayerRoleInternal(otherPlayer.getPlayerRole());
+        this.userLocale = otherPlayer.getUserLocale();
+        this.worldBorderEnabled |= otherPlayer.hasWorldBorderEnabled();
+        this.blocksStackerEnabled |= otherPlayer.hasBlocksStackerEnabled();
+        this.schematicModeEnabled |= otherPlayer.hasSchematicModeEnabled();
+        this.bypassModeEnabled |= otherPlayer.hasBypassModeEnabled();
+        this.teamChatEnabled |= otherPlayer.hasTeamChatEnabled();
+        this.toggledPanel |= otherPlayer.hasToggledPanel();
+        this.islandFly |= otherPlayer.hasToggledPanel();
+        this.adminSpyEnabled |= otherPlayer.hasAdminSpyEnabled();
+        this.disbands = otherPlayer.getDisbands();
+        this.borderColor = otherPlayer.getBorderColor();
+        this.lastTimeStatus = otherPlayer.getLastTimeStatus();
+        this.completedMissions.clear();
+
+        otherPlayer.getCompletedMissionsWithAmounts().forEach((mission, finishCount) ->
+                this.completedMissions.put(new MissionReference(mission), new Counter(finishCount)));
+
+        if (!otherPlayer.isPersistentDataContainerEmpty()) {
+            byte[] data = otherPlayer.getPersistentDataContainer().serialize();
+            getPersistentDataContainer().load(data);
+        }
+
+        // Convert data for missions
+        plugin.getMissions().convertPlayerData(otherPlayer, this);
+
+        // Replace player in DB.
+        PlayersDatabaseBridge.replacePlayer(otherPlayer, this);
+    }
+
+    @Override
+    public DatabaseBridge getDatabaseBridge() {
+        return databaseBridge;
+    }
+
+    @Override
+    public PersistentDataContainer getPersistentDataContainer() {
+        if (persistentDataContainer == null)
+            persistentDataContainer = plugin.getFactory().createPersistentDataContainer(this);
+        return persistentDataContainer;
+    }
+
+    @Override
+    public boolean isPersistentDataContainerEmpty() {
+        return persistentDataContainer == null || persistentDataContainer.isEmpty();
+    }
+
+    @Override
+    public void savePersistentDataContainer() {
+        PlayersDatabaseBridge.executeFutureSaves(this, PlayersDatabaseBridge.FutureSave.PERSISTENT_DATA);
+    }
+
+    @Override
+    public void completeMission(Mission<?> mission) {
+        Preconditions.checkNotNull(mission, "mission parameter cannot be null.");
+        Preconditions.checkArgument(!mission.getIslandMission(), "mission parameter must be player-mission.");
+        this.changeAmountMissionsCompletedInternal(mission, false, counter -> counter.inc(1));
+    }
+
+    @Override
+    public void resetMission(Mission<?> mission) {
+        Preconditions.checkNotNull(mission, "mission parameter cannot be null.");
+        Preconditions.checkArgument(!mission.getIslandMission(), "mission parameter must be player-mission.");
+        this.changeAmountMissionsCompletedInternal(mission, true, counter -> counter.inc(-1));
+    }
+
+    @Override
+    public boolean hasCompletedMission(Mission<?> mission) {
+        return getAmountMissionCompleted(mission) > 0;
+    }
+
+    @Override
+    public boolean canCompleteMissionAgain(Mission<?> mission) {
+        Preconditions.checkNotNull(mission, "mission parameter cannot be null.");
+        if (mission.getIslandMission())
+            return false;
+
+        Optional<MissionData> missionDataOptional = plugin.getMissions().getMissionData(mission);
+
+        if (missionDataOptional.isPresent()) {
+            int resetAmount = missionDataOptional.get().getResetAmount();
+            return resetAmount <= 0 || getAmountMissionCompleted(mission) < resetAmount;
+        }
+
+        return false;
+    }
+
+    @Override
+    public int getAmountMissionCompleted(Mission<?> mission) {
+        Preconditions.checkNotNull(mission, "mission parameter cannot be null.");
+        Counter finishCount = mission.getIslandMission() ? null : completedMissions.get(new MissionReference(mission));
+        return finishCount == null ? 0 : finishCount.get();
+    }
+
+    @Override
+    public void setAmountMissionCompleted(Mission<?> mission, int finishCount) {
+        Preconditions.checkNotNull(mission, "mission parameter cannot be null.");
+        Preconditions.checkArgument(!mission.getIslandMission(), "mission parameter must be player-mission.");
+        this.changeAmountMissionsCompletedInternal(mission, true, counter -> counter.set(finishCount));
+    }
+
+    private void changeAmountMissionsCompletedInternal(Mission<?> mission, boolean clearData, Function<Counter, Integer> action) {
+        Preconditions.checkNotNull(mission, "mission parameter cannot be null.");
+
+        MissionReference missionReference = new MissionReference(mission);
+
+        Counter finishCount = completedMissions.computeIfAbsent(missionReference, r -> new Counter(0));
+        int oldFinishCount = action.apply(finishCount);
+        int newFinishCount = finishCount.get();
+
+        Log.debug(Debug.SET_PLAYER_MISSION_COMPLETED, getName(), mission.getName(), newFinishCount);
+
+        if (clearData)
+            mission.clearData(this);
+
+        if (newFinishCount > 0) {
+            if (newFinishCount == oldFinishCount)
+                return;
+
+            PlayersDatabaseBridge.saveMission(this, mission, newFinishCount);
+        } else {
+            completedMissions.remove(missionReference);
+
+            if (oldFinishCount <= 0)
+                return;
+
+            PlayersDatabaseBridge.removeMission(this, mission);
+        }
+    }
+
+    @Override
+    public List<Mission<?>> getCompletedMissions() {
+        return new SequentialListBuilder<MissionReference>()
+                .filter(MissionReference::isValid)
+                .map(completedMissions.keySet(), MissionReference::getMission);
+    }
+
+    @Override
+    public Map<Mission<?>, Integer> getCompletedMissionsWithAmounts() {
+        Map<Mission<?>, Integer> completedMissions = new LinkedHashMap<>();
+
+        this.completedMissions.forEach((mission, finishCount) -> {
+            if (mission.isValid())
+                completedMissions.put(mission.getMission(), finishCount.get());
+        });
+
+        return completedMissions.isEmpty() ? Collections.emptyMap() : Collections.unmodifiableMap(completedMissions);
+    }
+
+    /*
+     *   Other Methods
+     */
+
+    @Override
+    public int hashCode() {
+        return uuid.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        return obj instanceof SuperiorPlayer && (this == obj || uuid.equals(((SuperiorPlayer) obj).getUniqueId()));
+    }
+
+    @Override
+    public String toString() {
+        return "SSuperiorPlayer{" +
+                "uuid=[" + uuid + "]," +
+                "name=[" + name + "]" +
+                "}";
+    }
+
+    private void setPlayerRoleInternal(@Nullable PlayerRole playerRole) {
+        PlayerRole newRole = playerRole == null ? SPlayerRole.guestRole() : playerRole;
+        this.playerRole = new WeakReference<>(newRole);
+        this.playerRoleId = newRole.getId();
+    }
+
+    public static void registerListeners(PluginEventsDispatcher dispatcher) {
+        dispatcher.registerCallback(PluginEventType.SETTINGS_UPDATE_EVENT, SSuperiorPlayer::onSettingsUpdate);
+    }
+
+    private static String removeTextureValueTimeStamp(@Nullable String textureValue) {
+        // The texture value string is a json containing a timestamp value.
+        // However, when we compare texture values, we want to emit the timestamp value.
+        // This value is found at index 35->41 (6 chars in length).
+        return textureValue == null || textureValue.length() <= 42 ? null : textureValue.substring(0, 35) + textureValue.substring(42);
+    }
+
+    private static boolean isPvPWorldInternal(String worldName) {
+        if (pvpWorldsCache == null)
+            pvpWorldsCache = new PvPWorldsCache(plugin.getSettings().getPvPWorlds());
+
+        return pvpWorldsCache.isPvPWorld(worldName);
+    }
+
+    private static void onSettingsUpdate() {
+        pvpWorldsCache = null;
+    }
+
+}

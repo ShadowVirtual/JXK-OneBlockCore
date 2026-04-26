@@ -1,0 +1,526 @@
+# ────────────────────────────────────────────────────────────────────────────
+# ONE BLOCK CONFIGURATION
+# ────────────────────────────────────────────────────────────────────────────
+# Defines the One Block rotation, Journey tasks, and daily one-block settings.
+#
+# ── BLOCK ENTRY FORMAT ──────────────────────────────────────────────────────
+# Each entry under blocks: is a colon-separated string:
+#
+#   MATERIAL:WEIGHT:TIER
+#   MATERIAL:WEIGHT:TIER:DROP_MAT:DROP_AMT
+#   SPAWNER:WEIGHT:TIER:::MOB_TYPE
+#
+#   MATERIAL   Bukkit Material name of the block to place (use SPAWNER for mob entries).
+#   WEIGHT     Integer. Higher weight = more frequent relative to other entries at this tier.
+#   TIER       Integer 0–10. Minimum Resource Access perk level required.
+#              Players with perk 0 can only get tier 0 blocks;
+#              perk 1 unlocks tiers 0–1, and so on up to perk 10.
+#   DROP_MAT   (Optional) Override the drop to a different material.
+#   DROP_AMT   (Optional) Amount to give when DROP_MAT is set.
+#   MOB_TYPE   (For SPAWNER entries only) Bukkit EntityType to spawn when this block is broken.
+#              Player must have Slaying Resource Access perk >= TIER.
+#
+# Examples:
+#   COAL_ORE:6:1              — Coal Ore with weight 6, unlocks at tier 1
+#   HAY_BLOCK:4:0:WHEAT:4     — Hay Block placed, but gives 4 Wheat on break
+#   SPAWNER:1:2:::ZOMBIE       — Zombie spawns on break, unlocks at tier 2
+#
+# ── GENERATOR ENTRY FORMAT ──────────────────────────────────────────────────
+# Generator material lists define what items generators can produce.
+# Each entry: MATERIAL:TIER — same tier gating as One Block blocks.
+# ────────────────────────────────────────────────────────────────────────────
+
+oneblock:
+  fallback-material: STONE
+  stages:
+  - name: oneblock
+    required-breaks: 0
+    blocks:
+    # Mining tier 0 (Common)
+    - STONE:9:0
+    - DIRT:9:0
+    - SAND:9:0
+    - GRAVEL:9:0
+    # Farming tier 0 (Common)
+    - OAK_LOG:6:0
+    - HAY_BLOCK:4:0:WHEAT:4
+    # Slaying tier 0 (Common)
+    - SPAWNER:1:0:::CHICKEN
+    - SPAWNER:1:0:::PIG
+    # Mining tier 1 (Common/Uncommon)
+    - COAL_ORE:6:1
+    - ANDESITE:6:1
+    - GRANITE:6:1
+    - DIORITE:6:1
+    # Farming tier 1 (Common)
+    - BIRCH_LOG:5:1
+    - BROWN_MUSHROOM_BLOCK:3:1:CARROT:3
+    # Slaying tier 1 (Common)
+    - SPAWNER:1:1:::SHEEP
+    - SPAWNER:1:1:::COW
+    - SPAWNER:1:1:::RABBIT
+    # Mining tier 2 (Rare/Uncommon/Common)
+    - COPPER_ORE:5:2
+    - TUFF:5:2
+    - RED_SAND:5:2
+    # Farming tier 2 (Common)
+    - DARK_OAK_LOG:4:2
+    - RED_MUSHROOM_BLOCK:3:2:POTATO:3
+    - ROOTED_DIRT:3:2:BEETROOT:4
+    # Slaying tier 2 (Uncommon/Common)
+    - SPAWNER:1:2:::ZOMBIE
+    - SPAWNER:1:2:::MUSHROOM_COW
+    - SPAWNER:1:2:::FROG
+    # Mining tier 3 (Rare/Uncommon/Common)
+    - IRON_ORE:4:3
+    - DEEPSLATE:4:3
+    - CLAY:4:3
+    # Farming tier 3 (Uncommon/Common)
+    - SPRUCE_LOG:4:3
+    - SWEET_BERRY_BUSH:3:3:SWEET_BERRIES:4
+    - VINE:2:3
+    # Slaying tier 3 (Common/Uncommon)
+    - SPAWNER:1:3:::ARMADILLO
+    - SPAWNER:1:3:::SPIDER
+    - SPAWNER:1:3:::SKELETON
+    # Mining tier 4 (Rare/Uncommon)
+    - LAPIS_ORE:3:4
+    - CALCITE:3:4
+    - SNOW_BLOCK:3:4
+    # Farming tier 4 (Uncommon/Rare)
+    - ACACIA_LOG:3:4
+    - CACTUS:2:4
+    - PUMPKIN:2:4
+    # Slaying tier 4 (Common/Rare/Uncommon)
+    - SPAWNER:1:4:::SQUID
+    - SPAWNER:1:4:::GUARDIAN
+    - SPAWNER:1:4:::DROWNED
+    # Mining tier 5 (Epic/Uncommon)
+    - REDSTONE_ORE:3:5
+    - DRIPSTONE_BLOCK:3:5
+    - MUD:3:5
+    # Farming tier 5 (Uncommon/Rare)
+    - JUNGLE_LOG:3:5
+    - BAMBOO:2:5
+    - STRIPPED_JUNGLE_LOG:2:5:COCOA_BEANS:3
+    # Slaying tier 5 (Uncommon/Rare)
+    - SPAWNER:1:5:::BEE
+    - SPAWNER:1:5:::BOGGED
+    - SPAWNER:1:5:::CREEPER
+    # Mining tier 6 (Epic/Rare)
+    - NETHER_QUARTZ_ORE:2:6
+    - NETHERRACK:2:6
+    - SOUL_SAND:2:6
+    # Farming tier 6 (Rare/Uncommon)
+    - MANGROVE_LOG:2:6
+    - DRIED_KELP_BLOCK:2:6:KELP:4
+    - SUGAR_CANE:2:6
+    # Slaying tier 6 (Rare)
+    - SPAWNER:1:6:::STRAY
+    - SPAWNER:1:6:::SLIME
+    # Mining tier 7 (Legendary/Rare/Epic)
+    - GOLD_ORE:2:7
+    - BASALT:2:7
+    - GLOWSTONE:2:7
+    # Farming tier 7 (Rare/Epic)
+    - CHERRY_LOG:2:7
+    - MELON:2:7
+    - MOSS_BLOCK:2:7:GLOW_BERRIES:4
+    # Slaying tier 7 (Epic/Rare)
+    - SPAWNER:1:7:::MAGMA_CUBE
+    - SPAWNER:1:7:::BLAZE
+    - SPAWNER:1:7:::BREEZE
+    # Mining tier 8 (Legendary/Rare)
+    - EMERALD_ORE:1:8
+    - BLACKSTONE:1:8
+    # Farming tier 8 (Epic/Legendary/Mythic)
+    - PALE_OAK_LOG:2:8
+    - NETHER_WART_BLOCK:1:8:NETHER_WART:4
+    - PITCHER_PLANT:1:8:PITCHER_POD:2
+    # Slaying tier 8 (Epic/Legendary)
+    - SPAWNER:1:8:::WITHER_SKELETON
+    - SPAWNER:1:8:::GHAST
+    - SPAWNER:1:8:::STRIDER
+    # Mining tier 9 (Epic/Mythic)
+    - END_STONE:1:9
+    - DIAMOND_ORE:1:9
+    # Farming tier 9 (Epic/Legendary/Mythic)
+    - CRIMSON_STEM:2:9
+    - CRIMSON_NYLIUM:2:9:WEEPING_VINES:4
+    - TORCHFLOWER:1:9
+    # Slaying tier 9 (Legendary)
+    - SPAWNER:1:9:::SHULKER
+    - SPAWNER:1:9:::ENDERMAN
+    - SPAWNER:1:9:::PHANTOM
+    # Mining tier 10 (Legendary/Mythic)
+    - AMETHYST_BLOCK:1:10:AMETHYST_SHARD:4
+    - ANCIENT_DEBRIS:1:10:NETHERITE_SCRAP:1
+    # Farming tier 10 (Epic/Legendary/Mythic)
+    - WARPED_STEM:1:10
+    - WARPED_NYLIUM:1:10:TWISTING_VINES:4
+    - CHORUS_FLOWER:1:10
+    # Slaying tier 10 (Mythic)
+    - SPAWNER:1:10:::WARDEN
+    - SPAWNER:1:10:::ELDER_GUARDIAN
+    - SPAWNER:1:10:::EVOKER
+generators:
+  mining:
+    enabled: true
+    base-yield: 1
+    yield-per-level: 1
+    max-level: 25
+    expansion-base-cost: 5000
+    expansion-cost-multiplier: 1.2
+    max-storage: 3456
+    base-max-placements: 1
+    max-placements-per-perk-level: 1
+    production-rate-seconds: 60
+    materials:
+      COBBLESTONE:
+        weight: 50
+        access-tier: 0
+      STONE:
+        weight: 30
+        access-tier: 0
+      DIRT:
+        weight: 20
+        access-tier: 0
+      SAND:
+        weight: 15
+        access-tier: 0
+      GRAVEL:
+        weight: 10
+        access-tier: 0
+      COAL:
+        weight: 15
+        access-tier: 1
+      ANDESITE:
+        weight: 8
+        access-tier: 1
+      GRANITE:
+        weight: 8
+        access-tier: 1
+      DIORITE:
+        weight: 8
+        access-tier: 1
+      COPPER_INGOT:
+        weight: 8
+        access-tier: 2
+      TUFF:
+        weight: 5
+        access-tier: 2
+      RED_SAND:
+        weight: 5
+        access-tier: 2
+      IRON_INGOT:
+        weight: 6
+        access-tier: 3
+      COBBLED_DEEPSLATE:
+        weight: 5
+        access-tier: 3
+      CLAY_BALL:
+        weight: 4
+        access-tier: 3
+      LAPIS_LAZULI:
+        weight: 4
+        access-tier: 4
+      CALCITE:
+        weight: 3
+        access-tier: 4
+      SNOWBALL:
+        weight: 3
+        access-tier: 4
+      REDSTONE:
+        weight: 3
+        access-tier: 5
+      POINTED_DRIPSTONE:
+        weight: 2
+        access-tier: 5
+      MUD:
+        weight: 2
+        access-tier: 5
+      QUARTZ:
+        weight: 3
+        access-tier: 6
+      NETHERRACK:
+        weight: 3
+        access-tier: 6
+      SOUL_SAND:
+        weight: 2
+        access-tier: 6
+      GOLD_INGOT:
+        weight: 2
+        access-tier: 7
+      BASALT:
+        weight: 2
+        access-tier: 7
+      GLOWSTONE_DUST:
+        weight: 2
+        access-tier: 7
+      EMERALD:
+        weight: 1
+        access-tier: 8
+      BLACKSTONE:
+        weight: 2
+        access-tier: 8
+      END_STONE:
+        weight: 2
+        access-tier: 9
+      DIAMOND:
+        weight: 1
+        access-tier: 9
+      AMETHYST_SHARD:
+        weight: 1
+        access-tier: 10
+      NETHERITE_SCRAP:
+        weight: 1
+        access-tier: 10
+  farming:
+    enabled: true
+    base-yield: 1
+    yield-per-level: 1
+    max-level: 25
+    expansion-base-cost: 5000
+    expansion-cost-multiplier: 1.2
+    max-storage: 3456
+    base-max-placements: 1
+    max-placements-per-perk-level: 1
+    production-rate-seconds: 60
+    materials:
+      OAK_LOG:
+        weight: 30
+        access-tier: 0
+      WHEAT:
+        weight: 25
+        access-tier: 0
+      BIRCH_LOG:
+        weight: 15
+        access-tier: 1
+      CARROT:
+        weight: 12
+        access-tier: 1
+      DARK_OAK_LOG:
+        weight: 10
+        access-tier: 2
+      POTATO:
+        weight: 8
+        access-tier: 2
+      BEETROOT:
+        weight: 8
+        access-tier: 2
+      SPRUCE_LOG:
+        weight: 8
+        access-tier: 3
+      SWEET_BERRIES:
+        weight: 5
+        access-tier: 3
+      VINE:
+        weight: 5
+        access-tier: 3
+      ACACIA_LOG:
+        weight: 6
+        access-tier: 4
+      CACTUS:
+        weight: 4
+        access-tier: 4
+      PUMPKIN:
+        weight: 4
+        access-tier: 4
+      JUNGLE_LOG:
+        weight: 5
+        access-tier: 5
+      BAMBOO:
+        weight: 4
+        access-tier: 5
+      COCOA_BEANS:
+        weight: 3
+        access-tier: 5
+      MANGROVE_LOG:
+        weight: 4
+        access-tier: 6
+      KELP:
+        weight: 3
+        access-tier: 6
+      SUGAR_CANE:
+        weight: 3
+        access-tier: 6
+      CHERRY_LOG:
+        weight: 3
+        access-tier: 7
+      MELON_SLICE:
+        weight: 2
+        access-tier: 7
+      GLOW_BERRIES:
+        weight: 2
+        access-tier: 7
+      PALE_OAK_LOG:
+        weight: 2
+        access-tier: 8
+      NETHER_WART:
+        weight: 2
+        access-tier: 8
+      PITCHER_POD:
+        weight: 1
+        access-tier: 8
+      CRIMSON_STEM:
+        weight: 2
+        access-tier: 9
+      WEEPING_VINES:
+        weight: 1
+        access-tier: 9
+      TORCHFLOWER:
+        weight: 1
+        access-tier: 9
+      WARPED_STEM:
+        weight: 2
+        access-tier: 10
+      TWISTING_VINES:
+        weight: 1
+        access-tier: 10
+      CHORUS_FRUIT:
+        weight: 1
+        access-tier: 10
+  slaying:
+    enabled: true
+    base-yield: 1
+    yield-per-level: 1
+    max-level: 25
+    expansion-base-cost: 5000
+    expansion-cost-multiplier: 1.2
+    max-storage: 3456
+    base-max-placements: 1
+    max-placements-per-perk-level: 1
+    production-rate-seconds: 60
+    materials:
+      FEATHER:
+        weight: 30
+        access-tier: 0
+      PORKCHOP:
+        weight: 20
+        access-tier: 0
+      WHITE_WOOL:
+        weight: 15
+        access-tier: 1
+      LEATHER:
+        weight: 12
+        access-tier: 1
+      RABBIT_HIDE:
+        weight: 10
+        access-tier: 1
+      ROTTEN_FLESH:
+        weight: 12
+        access-tier: 2
+      SLIME_BALL:
+        weight: 6
+        access-tier: 2
+      RED_MUSHROOM:
+        weight: 5
+        access-tier: 2
+      BONE:
+        weight: 12
+        access-tier: 3
+      STRING:
+        weight: 10
+        access-tier: 3
+      ARMADILLO_SCUTE:
+        weight: 5
+        access-tier: 3
+      INK_SAC:
+        weight: 6
+        access-tier: 4
+      PRISMARINE_SHARD:
+        weight: 5
+        access-tier: 4
+      PRISMARINE_CRYSTALS:
+        weight: 4
+        access-tier: 4
+      HONEYCOMB:
+        weight: 4
+        access-tier: 5
+      GUNPOWDER:
+        weight: 6
+        access-tier: 5
+      ARROW:
+        weight: 5
+        access-tier: 5
+      NAUTILUS_SHELL:
+        weight: 3
+        access-tier: 6
+      SNOWBALL:
+        weight: 3
+        access-tier: 6
+      SPIDER_EYE:
+        weight: 3
+        access-tier: 6
+      MAGMA_CREAM:
+        weight: 3
+        access-tier: 7
+      BLAZE_ROD:
+        weight: 2
+        access-tier: 7
+      BREEZE_ROD:
+        weight: 2
+        access-tier: 7
+      COAL:
+        weight: 3
+        access-tier: 8
+      GHAST_TEAR:
+        weight: 1
+        access-tier: 8
+      WARPED_FUNGUS:
+        weight: 1
+        access-tier: 8
+      SHULKER_SHELL:
+        weight: 1
+        access-tier: 9
+      ENDER_PEARL:
+        weight: 2
+        access-tier: 9
+      PHANTOM_MEMBRANE:
+        weight: 1
+        access-tier: 9
+      ECHO_SHARD:
+        weight: 1
+        access-tier: 10
+      SPONGE:
+        weight: 1
+        access-tier: 10
+      TOTEM_OF_UNDYING:
+        weight: 1
+        access-tier: 10
+prestige:
+  cost: 100000
+daily-growth-limits:
+  upgrade-base-cost: 1000
+  upgrade-cost-multiplier: 1.5
+  upgrade-amount: 50
+  max-tier: 20
+  fragment-cost-base: 5
+  defaults:
+    wheat: 100
+    carrots: 100
+    potatoes: 100
+    beetroots: 100
+    cactus: 100
+    sugar_cane: 100
+    bamboo: 200
+    nether_wart: 100
+    sweet_berry_bush: 100
+    kelp: 150
+    weeping_vines: 100
+    twisting_vines: 100
+    cave_vines: 100
+    cave_vines_plant: 100
+    pitcher_crop: 50
+    torchflower_crop: 50
+    oak_sapling: 20
+    birch_sapling: 20
+    spruce_sapling: 20
+    jungle_sapling: 20
+    acacia_sapling: 20
+    dark_oak_sapling: 10
+    cherry_sapling: 10
+    mangrove_propagule: 10
+    pale_oak_sapling: 10
+    crimson_fungus: 10
+    warped_fungus: 10

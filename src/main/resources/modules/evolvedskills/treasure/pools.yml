@@ -1,0 +1,58 @@
+# Treasure pool definitions.
+# Use /treasurepool save <name> in-game to populate a pool from a chest.
+# Or click a pool in /treasurepool view to open the edit GUI.
+# Adding entries manually is also supported — see format below.
+#
+# Entry format:
+#   - weight: <int>          # relative weight vs other entries
+#     item: MATERIAL:AMOUNT  # optional item drop
+#     money: <double>        # optional money reward
+#     skill-xp: <int>        # optional Skill XP reward
+#     player-xp: <int>       # optional Player XP reward
+
+pools:
+  mining-common:
+    display-name: Mining Common
+    entries: []
+
+  mining-uncommon:
+    display-name: Mining Uncommon
+    entries: []
+
+  mining-rare:
+    display-name: Mining Rare
+    entries:
+      - weight: 10
+        generator: mining
+
+  mining-epic:
+    display-name: Mining Epic
+    entries: []
+
+  farming-common:
+    display-name: Farming Common
+    entries: []
+
+  farming-uncommon:
+    display-name: Farming Uncommon
+    entries: []
+
+  farming-rare:
+    display-name: Farming Rare
+    entries:
+      - weight: 10
+        generator: farming
+
+  mob-common:
+    display-name: Mob Common
+    entries: []
+
+  mob-uncommon:
+    display-name: Mob Uncommon
+    entries: []
+
+  mob-rare:
+    display-name: Mob Rare
+    entries:
+      - weight: 10
+        generator: slaying

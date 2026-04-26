@@ -1,0 +1,367 @@
+# Treasure drop links — maps resources to treasure pools with drop chances.
+#
+# resource-key: lowercase material name (blocks/node outputs) or entity type name (mobs)
+# Multiple pools per resource are rolled independently on each harvest.
+#
+# Format:
+#   resource_key:
+#     - pool: pool-name
+#       chance: 0.05   # 0.0–1.0 (e.g. 0.05 = 5% per harvest)
+
+links:
+
+  # ────────────────────────────────────────────────────────────────
+  # MINING — Oneblock display blocks + Node outputs
+  # ────────────────────────────────────────────────────────────────
+
+  # Tier 0-1 common
+  coal_ore:
+    - pool: mining-common
+      chance: 0.05
+  coal:
+    - pool: mining-common
+      chance: 0.05
+  iron_ore:
+    - pool: mining-common
+      chance: 0.06
+  raw_iron:
+    - pool: mining-common
+      chance: 0.06
+  copper_ore:
+    - pool: mining-common
+      chance: 0.05
+  raw_copper:
+    - pool: mining-common
+      chance: 0.05
+
+  # Tier 2-3 uncommon
+  lapis_ore:
+    - pool: mining-uncommon
+      chance: 0.05
+  lapis_lazuli:
+    - pool: mining-uncommon
+      chance: 0.05
+  redstone_ore:
+    - pool: mining-uncommon
+      chance: 0.05
+  redstone:
+    - pool: mining-uncommon
+      chance: 0.05
+  nether_quartz_ore:
+    - pool: mining-uncommon
+      chance: 0.05
+  quartz:
+    - pool: mining-uncommon
+      chance: 0.05
+  glowstone:
+    - pool: mining-uncommon
+      chance: 0.05
+  glowstone_dust:
+    - pool: mining-uncommon
+      chance: 0.05
+  gold_ore:
+    - pool: mining-uncommon
+      chance: 0.05
+  raw_gold:
+    - pool: mining-uncommon
+      chance: 0.05
+
+  # Tier 4-6 rare
+  diamond_ore:
+    - pool: mining-rare
+      chance: 0.04
+    - pool: mining-uncommon
+      chance: 0.06
+  diamond:
+    - pool: mining-rare
+      chance: 0.04
+    - pool: mining-uncommon
+      chance: 0.06
+  emerald_ore:
+    - pool: mining-rare
+      chance: 0.04
+  emerald:
+    - pool: mining-rare
+      chance: 0.04
+  amethyst_block:
+    - pool: mining-rare
+      chance: 0.03
+  amethyst_shard:
+    - pool: mining-rare
+      chance: 0.03
+
+  # Tier 8 epic
+  ancient_debris:
+    - pool: mining-epic
+      chance: 0.04
+  netherite_scrap:
+    - pool: mining-epic
+      chance: 0.04
+
+  # ────────────────────────────────────────────────────────────────
+  # FARMING — Oneblock display blocks + Node outputs + Natural crops
+  # ────────────────────────────────────────────────────────────────
+
+  # Logs (oneblock display + node output)
+  oak_log:
+    - pool: farming-common
+      chance: 0.04
+  birch_log:
+    - pool: farming-common
+      chance: 0.04
+  spruce_log:
+    - pool: farming-common
+      chance: 0.04
+  dark_oak_log:
+    - pool: farming-common
+      chance: 0.04
+  acacia_log:
+    - pool: farming-common
+      chance: 0.04
+  jungle_log:
+    - pool: farming-common
+      chance: 0.04
+  mangrove_log:
+    - pool: farming-uncommon
+      chance: 0.04
+  cherry_log:
+    - pool: farming-uncommon
+      chance: 0.04
+  pale_oak_log:
+    - pool: farming-uncommon
+      chance: 0.03
+  crimson_stem:
+    - pool: farming-uncommon
+      chance: 0.03
+  warped_stem:
+    - pool: farming-uncommon
+      chance: 0.03
+  stripped_jungle_log:
+    - pool: farming-common
+      chance: 0.04
+
+  # Basic crops (oneblock display blocks + node outputs + natural breaks)
+  hay_block:
+    - pool: farming-common
+      chance: 0.05
+  wheat:
+    - pool: farming-common
+      chance: 0.05
+  brown_mushroom_block:
+    - pool: farming-common
+      chance: 0.04
+  carrot:
+    - pool: farming-common
+      chance: 0.05
+  carrots:
+    - pool: farming-common
+      chance: 0.05
+  red_mushroom_block:
+    - pool: farming-common
+      chance: 0.04
+  potato:
+    - pool: farming-common
+      chance: 0.05
+  potatoes:
+    - pool: farming-common
+      chance: 0.05
+  rooted_dirt:
+    - pool: farming-common
+      chance: 0.04
+  beetroot:
+    - pool: farming-common
+      chance: 0.05
+  beetroots:
+    - pool: farming-common
+      chance: 0.05
+  sweet_berries:
+    - pool: farming-common
+      chance: 0.05
+  cactus:
+    - pool: farming-common
+      chance: 0.04
+  pumpkin:
+    - pool: farming-common
+      chance: 0.04
+  melon:
+    - pool: farming-common
+      chance: 0.04
+  melon_slice:
+    - pool: farming-common
+      chance: 0.04
+  bamboo:
+    - pool: farming-common
+      chance: 0.04
+  vine:
+    - pool: farming-common
+      chance: 0.03
+  sugar_cane:
+    - pool: farming-common
+      chance: 0.04
+
+  # Uncommon crops
+  nether_wart_block:
+    - pool: farming-uncommon
+      chance: 0.05
+  nether_wart:
+    - pool: farming-uncommon
+      chance: 0.05
+  dried_kelp_block:
+    - pool: farming-uncommon
+      chance: 0.04
+  kelp:
+    - pool: farming-uncommon
+      chance: 0.04
+  cocoa_beans:
+    - pool: farming-uncommon
+      chance: 0.04
+  moss_block:
+    - pool: farming-uncommon
+      chance: 0.04
+  glow_berries:
+    - pool: farming-uncommon
+      chance: 0.04
+  weeping_vines:
+    - pool: farming-uncommon
+      chance: 0.03
+  twisting_vines:
+    - pool: farming-uncommon
+      chance: 0.03
+  crimson_nylium:
+    - pool: farming-uncommon
+      chance: 0.03
+  warped_nylium:
+    - pool: farming-uncommon
+      chance: 0.03
+
+  # Rare crops
+  pitcher_plant:
+    - pool: farming-rare
+      chance: 0.03
+  pitcher_pod:
+    - pool: farming-rare
+      chance: 0.03
+  torchflower:
+    - pool: farming-rare
+      chance: 0.03
+  torchflower_seeds:
+    - pool: farming-rare
+      chance: 0.03
+  chorus_flower:
+    - pool: farming-rare
+      chance: 0.03
+  chorus_fruit:
+    - pool: farming-rare
+      chance: 0.03
+
+  # ────────────────────────────────────────────────────────────────
+  # MOBS — Entity type names (lowercase)
+  # ────────────────────────────────────────────────────────────────
+
+  # Common mobs
+  zombie:
+    - pool: mob-common
+      chance: 0.05
+  skeleton:
+    - pool: mob-common
+      chance: 0.05
+  spider:
+    - pool: mob-common
+      chance: 0.05
+  cave_spider:
+    - pool: mob-common
+      chance: 0.05
+  creeper:
+    - pool: mob-common
+      chance: 0.05
+  drowned:
+    - pool: mob-common
+      chance: 0.05
+  husk:
+    - pool: mob-common
+      chance: 0.05
+  stray:
+    - pool: mob-common
+      chance: 0.05
+  bogged:
+    - pool: mob-common
+      chance: 0.05
+  slime:
+    - pool: mob-common
+      chance: 0.04
+  magma_cube:
+    - pool: mob-common
+      chance: 0.04
+  chicken:
+    - pool: mob-common
+      chance: 0.04
+  pig:
+    - pool: mob-common
+      chance: 0.04
+  sheep:
+    - pool: mob-common
+      chance: 0.04
+  cow:
+    - pool: mob-common
+      chance: 0.04
+  rabbit:
+    - pool: mob-common
+      chance: 0.04
+  mushroom_cow:
+    - pool: mob-common
+      chance: 0.04
+  squid:
+    - pool: mob-common
+      chance: 0.04
+
+  # Uncommon mobs
+  enderman:
+    - pool: mob-uncommon
+      chance: 0.05
+  blaze:
+    - pool: mob-uncommon
+      chance: 0.05
+  piglin:
+    - pool: mob-uncommon
+      chance: 0.04
+  piglin_brute:
+    - pool: mob-uncommon
+      chance: 0.05
+  zombified_piglin:
+    - pool: mob-uncommon
+      chance: 0.04
+  guardian:
+    - pool: mob-uncommon
+      chance: 0.05
+  phantom:
+    - pool: mob-uncommon
+      chance: 0.04
+  breeze:
+    - pool: mob-uncommon
+      chance: 0.05
+  frog:
+    - pool: mob-uncommon
+      chance: 0.04
+  bee:
+    - pool: mob-uncommon
+      chance: 0.04
+  armadillo:
+    - pool: mob-uncommon
+      chance: 0.04
+
+  # Rare mobs
+  wither_skeleton:
+    - pool: mob-rare
+      chance: 0.05
+  ghast:
+    - pool: mob-rare
+      chance: 0.04
+  shulker:
+    - pool: mob-rare
+      chance: 0.05
+  strider:
+    - pool: mob-rare
+      chance: 0.04
+  warden:
+    - pool: mob-rare
+      chance: 0.06

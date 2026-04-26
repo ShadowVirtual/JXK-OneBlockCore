@@ -1,0 +1,50 @@
+######################################################
+##                                                  ##
+##                SuperiorSkyblock 2                ##
+##                Developed by Ome_R                ##
+##                                                  ##
+######################################################
+
+title: '&lWarp Categories'
+previous-menu: true
+
+pattern:
+  - '@ @ @ @ @ @ @ @ @'
+  - '@ @ @ @ @ @ @ @ @'
+  - '@ @ @ @ @ @ @ @ @'
+  - '@ @ @ @ @ @ @ @ @'
+  - '$ $ $ $ $ $ $ $ $'
+  - '# # % # * # ^ # #'
+
+slots: '@'
+previous-page: '%'
+current-page: '*'
+next-page: '^'
+
+# This lore is added to category icons.
+edit-lore:
+  - '&f '
+  - '&f '
+  - '&7&o(( &f&oLeft-Click &7&oto see island warps. ))'
+  - '&7&o(( &f&oRight-Click &7&oto edit the category. ))'
+
+items:
+  '@':
+    type: STAINED_GLASS_PANE
+    data: 15
+    name: '&f'
+  '%':
+    type: PAPER
+    name: '&cPrevious Page'
+  '*':
+    type: DOUBLE_PLANT
+    name: '&aCurrent Page'
+    lore:
+      - '&7Page 1'
+  '^':
+    type: PAPER
+    name: '&cNext Page'
+  '$':
+    type: STAINED_GLASS_PANE
+    data: 15
+    name: '&f'

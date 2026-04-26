@@ -1,0 +1,49 @@
+######################################################
+##                                                  ##
+##                SuperiorSkyblock 2                ##
+##                Developed by Ome_R                ##
+##                                                  ##
+######################################################
+
+title: '&lCreate a new island...'
+previous-menu: true
+
+pattern:
+  - '~ ~ ~ ~ ~ ~ ~ ~ ~'
+  - '~ ~ ~ ~ & ~ ~ ~ ~'
+  - '~ ~ ~ ~ ~ ~ ~ ~ ~'
+
+items:
+  '&':
+    schematic: 'oneblock'
+    biome: PLAINS
+    spawn-offset: '0, 0, 0'
+    access:
+      type: DIAMOND_BLOCK
+      name: '&bOneBlock Island &a(Available)'
+      lore:
+        - '&7Start with a single evolving block!'
+        - '&7 '
+        - '&7&o(( &f&oRight-Click &7&oto preview the island. ))'
+    no-access:
+      type: DIAMOND_BLOCK
+      name: '&bOneBlock Island &c(Unavailable)'
+      lore:
+        - '&7Start with a single evolving block!'
+        - '&7 '
+        - '&7&o(( &f&oRight-Click &7&oto preview the island. ))'
+  '~':
+    type: STAINED_GLASS_PANE
+    data: 7
+    name: '&f'
+
+sounds:
+  '&':
+    access:
+      type: PORTAL_TRIGGER
+      volume: 1
+      pitch: 0.2
+    no-access:
+      type: ANVIL_LAND
+      volume: 0.2
+      pitch: 0.2

@@ -1,0 +1,61 @@
+drops:
+  iron_ore:
+    chance: 0.05
+    pool: basic
+  coal_ore:
+    chance: 0.08
+    pool: basic
+  diamond_ore:
+    chance: 0.02
+    pool: rare
+  zombie:
+    chance: 0.03
+    pool: basic
+  skeleton:
+    chance: 0.03
+    pool: basic
+  spider:
+    chance: 0.04
+    pool: basic
+  wheat:
+    chance: 0.05
+    pool: basic
+  carrots:
+    chance: 0.05
+    pool: basic
+  potatoes:
+    chance: 0.05
+    pool: basic
+pools:
+  basic:
+    display-name: Basic
+    entries:
+    - weight: 50
+      money: 1500
+    - weight: 30
+      item: IRON_INGOT:16
+    - weight: 20
+      skill-xp: 60
+      player-xp: 60
+  rare:
+    display-name: Rare
+    entries:
+    - weight: 45
+      money: 4000
+    - weight: 35
+      item: DIAMOND:4
+    - weight: 20
+      skill-xp: 150
+      player-xp: 150
+  epic:
+    display-name: Epic
+    entries:
+    - weight: 35
+      money: 9000
+    - weight: 30
+      item: NETHERITE_SCRAP:1
+    - weight: 20
+      item: DIAMOND_BLOCK:1
+    - weight: 15
+      skill-xp: 350
+      player-xp: 350
