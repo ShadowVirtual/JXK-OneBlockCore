@@ -2602,6 +2602,17 @@ public class EvolvedSkillsService {
 
         Bukkit.getScheduler().runTask(plugin, () -> {
             block.setType(displayMaterial, false);
+            // After the block respawns, clip any player whose feet are inside it
+            // upward to the surface so they land on top instead of being pushed sideways
+            double safeY = block.getY() + 1.01;
+            for (org.bukkit.entity.Entity e : block.getWorld().getNearbyEntities(
+                    block.getLocation().add(0.5, 1.0, 0.5), 0.7, 1.2, 0.7)) {
+                if (!(e instanceof Player)) continue;
+                Location eLoc = e.getLocation();
+                if (eLoc.getY() < safeY) {
+                    ((Player) e).teleport(new Location(eLoc.getWorld(), eLoc.getX(), safeY, eLoc.getZ(), eLoc.getYaw(), eLoc.getPitch()));
+                }
+            }
             if (mobToSpawn != null) {
                 spawnMobFromOneBlock(block, mobToSpawn, islandState);
             }
