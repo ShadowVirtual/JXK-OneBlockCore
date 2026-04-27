@@ -29,6 +29,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.GameMode;
 import org.bukkit.block.Biome;
 import org.bukkit.block.Block;
 import org.bukkit.block.CreatureSpawner;
@@ -37,6 +38,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
+import org.bukkit.Sound;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockDamageEvent;
@@ -54,6 +56,7 @@ import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.enchantments.Enchantment;
 
 import com.bgsoftware.superiorskyblock.SuperiorSkyblockPlugin;
 import com.bgsoftware.superiorskyblock.api.events.IslandDisbandEvent;
@@ -73,6 +76,8 @@ public class EvolvedSkillsService {
 
     private static final Material SPAWNER_MATERIAL = EnumHelper.getEnum(Material.class, "SPAWNER", "MOB_SPAWNER");
     private static final Material AIR_MATERIAL = EnumHelper.getEnum(Material.class, "AIR");
+        private static final Enchantment UNBREAKING_ENCHANTMENT =
+            EnumHelper.getEnum(Enchantment.class, "UNBREAKING", "DURABILITY");
     private static final Map<Material, Material> BLOCK_TO_ITEM_ICON;
     static {
         BLOCK_TO_ITEM_ICON = new HashMap<>();
@@ -1760,6 +1765,8 @@ public class EvolvedSkillsService {
             event.setExpToDrop(0);
             suppressDropsAt(locationKey, 2L);
             final Material brokenType = event.getBlock().getType();
+            playOneBlockBreakSound(event.getBlock(), brokenType);
+            applyOneBlockToolDurability(event.getPlayer());
             ItemStack dropOverrideStack = islandState.pendingDropOverride;
             if (dropOverrideStack == null) {
                 WeightedMaterial wmForCurrent = findWeightedMaterialForType(islandState.oneblockBrokenTotal, brokenType);
@@ -2762,6 +2769,127 @@ public class EvolvedSkillsService {
 
     private boolean isOneBlockAnchorBreak(Block block, IslandState islandState) {
         return islandState.oneblockAnchor != null && islandState.oneblockAnchor.matches(block.getLocation());
+    }
+
+    private void playOneBlockBreakSound(Block block, Material brokenType) {
+        if (block == null || brokenType == null || block.getWorld() == null) {
+            return;
+        }
+
+        String materialName = brokenType.name().toUpperCase(Locale.ENGLISH);
+        Sound sound = EnumHelper.getEnum(Sound.class, "BLOCK_STONE_BREAK", "DIG_STONE");
+        String soundName = "minecraft:block.stone.break";
+        if (materialName.contains("LOG") || materialName.contains("WOOD") || materialName.contains("STEM")
+                || materialName.contains("HYPHAE") || materialName.contains("PLANK") || materialName.contains("BAMBOO")) {
+            sound = EnumHelper.getEnum(Sound.class, "BLOCK_WOOD_BREAK", "DIG_WOOD");
+            soundName = "minecraft:block.wood.break";
+        } else if (materialName.contains("LEAVES") || materialName.contains("VINE") || materialName.contains("GRASS")
+                || materialName.contains("MOSS") || materialName.contains("WHEAT") || materialName.contains("CROP")) {
+            sound = EnumHelper.getEnum(Sound.class, "BLOCK_GRASS_BREAK", "DIG_GRASS");
+            soundName = "minecraft:block.grass.break";
+        } else if (materialName.contains("SAND") || materialName.contains("GRAVEL")) {
+            sound = EnumHelper.getEnum(Sound.class, "BLOCK_GRAVEL_BREAK", "DIG_GRAVEL");
+            soundName = "minecraft:block.gravel.break";
+        }
+
+        if (sound != null) {
+            block.getWorld().playSound(block.getLocation(), sound, 1.0F, 1.0F);
+            return;
+        }
+
+        try {
+            block.getWorld().getClass()
+                    .getMethod("playSound", Location.class, String.class, float.class, float.class)
+                    .invoke(block.getWorld(), block.getLocation(), soundName, 1.0F, 1.0F);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void applyOneBlockToolDurability(Player player) {
+        if (player == null || player.getGameMode() == GameMode.CREATIVE) {
+            return;
+        }
+
+        ItemStack heldItem = getPlayerHeldItem(player);
+        if (heldItem == null || heldItem.getType() == AIR_MATERIAL) {
+            return;
+        }
+
+        short maxDurability = heldItem.getType().getMaxDurability();
+        if (maxDurability <= 0) {
+            return;
+        }
+
+        ItemMeta itemMeta = heldItem.getItemMeta();
+        if (!(itemMeta instanceof org.bukkit.inventory.meta.Damageable) || isItemMetaUnbreakable(itemMeta)) {
+            return;
+        }
+
+        int unbreakingLevel = UNBREAKING_ENCHANTMENT == null ? 0 : heldItem.getEnchantmentLevel(UNBREAKING_ENCHANTMENT);
+        if (unbreakingLevel > 0 && random.nextInt(unbreakingLevel + 1) != 0) {
+            return;
+        }
+
+        org.bukkit.inventory.meta.Damageable damageableMeta = (org.bukkit.inventory.meta.Damageable) itemMeta;
+        int nextDamage = damageableMeta.getDamage() + 1;
+
+        if (nextDamage >= maxDurability) {
+            setPlayerHeldItem(player, new ItemStack(AIR_MATERIAL));
+            return;
+        }
+
+        damageableMeta.setDamage(nextDamage);
+        heldItem.setItemMeta(itemMeta);
+        setPlayerHeldItem(player, heldItem);
+    }
+
+    private ItemStack getPlayerHeldItem(Player player) {
+        if (player == null) {
+            return null;
+        }
+        try {
+            Object value = player.getInventory().getClass().getMethod("getItemInMainHand").invoke(player.getInventory());
+            if (value instanceof ItemStack) {
+                return (ItemStack) value;
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            Object value = player.getClass().getMethod("getItemInHand").invoke(player);
+            if (value instanceof ItemStack) {
+                return (ItemStack) value;
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private void setPlayerHeldItem(Player player, ItemStack itemStack) {
+        if (player == null) {
+            return;
+        }
+        try {
+            player.getInventory().getClass().getMethod("setItemInMainHand", ItemStack.class)
+                    .invoke(player.getInventory(), itemStack);
+            return;
+        } catch (Throwable ignored) {
+        }
+        try {
+            player.getClass().getMethod("setItemInHand", ItemStack.class).invoke(player, itemStack);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private boolean isItemMetaUnbreakable(ItemMeta itemMeta) {
+        if (itemMeta == null) {
+            return false;
+        }
+        try {
+            Object value = itemMeta.getClass().getMethod("isUnbreakable").invoke(itemMeta);
+            return value instanceof Boolean && (Boolean) value;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private boolean tryAttachLegacyOneBlockAnchor(Island island, IslandState islandState, boolean fromBreakPath) {

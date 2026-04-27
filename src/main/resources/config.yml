@@ -521,8 +521,7 @@ teleport-on-leave: false
 # Available actions: EFFECTS, ENDER_CHEST, EXPERIENCE, HEALTH, HUNGER, INVENTORY
 # You can disable this feature by setting the section to 'clear-on-disband: []'
 clear-on-disband:
-  - ENDER_CHEST
-  - INVENTORY
+  [ ]
 
 # List of clear actions to perform on players when they accept an invite.
 # Available actions: EFFECTS, ENDER_CHEST, EXPERIENCE, HEALTH, HUNGER, INVENTORY
