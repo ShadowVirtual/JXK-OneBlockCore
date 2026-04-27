@@ -327,6 +327,7 @@ public class EvolvedSkillsService {
         UNSTABLE_BLOCK_TYPES = java.util.Collections.unmodifiableSet(s);
     }
     private final Set<UUID> pendingAnchorSetup = new HashSet<>();
+    private final Set<UUID> pendingIslandCreateTeleport = new HashSet<>();
     private final Map<UUID, String> pendingNodeCrafts = new HashMap<>();
 
     private EvolvedConfig config;
@@ -357,6 +358,7 @@ public class EvolvedSkillsService {
     private transient Method nexoFontManagerMethod;
     private transient Method nexoGetPlaceholderGlyphMapMethod;
     private transient Method nexoGlyphCharacterMethod;
+    private transient EvolvedSkillsPapi papiExpansion;
 
     public EvolvedSkillsService(SuperiorSkyblockPlugin plugin, EvolvedSkillsModule module) {
         this.plugin = plugin;
@@ -383,7 +385,13 @@ public class EvolvedSkillsService {
             return;
         }
         try {
-            new EvolvedSkillsPapi().register();
+            if (papiExpansion != null) {
+                return;
+            }
+            papiExpansion = new EvolvedSkillsPapi();
+            if (!papiExpansion.register()) {
+                plugin.getLogger().warning("[EvolvedSkills] PlaceholderAPI expansion registration returned false.");
+            }
         } catch (Throwable t) {
             plugin.getLogger().warning("[EvolvedSkills] Failed to register PlaceholderAPI expansion: " + t.getMessage());
         }
@@ -573,6 +581,7 @@ public class EvolvedSkillsService {
 
     public void disable() {
         cancelTasks();
+        papiExpansion = null;
         
         savePersistentStateSync();
     }
@@ -1139,6 +1148,14 @@ public class EvolvedSkillsService {
                 return;
             }
             placeOneBlockAnchor(freshIsland, superiorPlayer, islandId);
+
+            if (superiorPlayer != null && pendingIslandCreateTeleport.remove(superiorPlayer.getUniqueId())) {
+                Player onlinePlayer = superiorPlayer.asPlayer();
+                if (onlinePlayer != null && onlinePlayer.isOnline()) {
+                    Bukkit.getScheduler().runTaskLater(plugin,
+                            () -> teleportPlayerToIslandHome(onlinePlayer, superiorPlayer), 2L);
+                }
+            }
         }, 40L);
     }
 
@@ -1148,12 +1165,25 @@ public class EvolvedSkillsService {
             return;
         }
 
+        SuperiorPlayer teleportingPlayer = event.getPlayer();
+        if (teleportingPlayer != null) {
+            Island ownedIsland = resolveOwnedIsland(teleportingPlayer);
+            if (ownedIsland != null && "oneblock".equalsIgnoreCase(ownedIsland.getSchematicName())) {
+                island = ownedIsland;
+            } else if (!isIslandOwnedBy(island, teleportingPlayer)) {
+                event.setCancelled(true);
+                send(teleportingPlayer, "&cYou can only teleport to your own island home.");
+                return;
+            }
+        }
+
         UUID islandId = island.getUniqueId();
         IslandState islandState = getIslandState(islandId);
-        SuperiorPlayer teleportingPlayer = event.getPlayer();
 
         if (islandState.oneblockAnchor == null) {
-            placeOneBlockAnchor(island, teleportingPlayer, islandId);
+            if (!tryAttachLegacyOneBlockAnchor(island, islandState, false)) {
+                placeOneBlockAnchor(island, teleportingPlayer, islandId);
+            }
         } else {
             Location anchorLoc = islandState.oneblockAnchor.toLocation();
             if (anchorLoc != null && anchorLoc.getBlock().getType() == AIR_MATERIAL) {
@@ -1194,6 +1224,14 @@ public class EvolvedSkillsService {
     private void placeOneBlockAnchor(Island island, SuperiorPlayer superiorPlayer, UUID islandId) {
         Location anchorBase = resolveOneBlockAnchorBase(island, superiorPlayer);
         if (anchorBase == null || anchorBase.getWorld() == null) {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (pendingAnchorSetup.contains(islandId)) {
+                    Island retryIsland = plugin.getGrid().getIslandByUUID(islandId);
+                    if (retryIsland != null) {
+                        placeOneBlockAnchor(retryIsland, superiorPlayer, islandId);
+                    }
+                }
+            }, 20L);
             return;
         }
 
@@ -1203,16 +1241,11 @@ public class EvolvedSkillsService {
 
         
         org.bukkit.World world = blockLoc.getWorld();
-        int cx = blockLoc.getBlockX();
-        int cy = blockLoc.getBlockY();
-        int cz = blockLoc.getBlockZ();
-        for (int dx = -4; dx <= 4; dx++) {
-            for (int dz = -4; dz <= 4; dz++) {
-                for (int dy = -2; dy <= 5; dy++) {
-                    world.getBlockAt(cx + dx, cy + dy, cz + dz).setType(Material.AIR, false);
-                }
-            }
-        }
+
+        // Only clear the anchor column, never the surrounding platform.
+        // This prevents accidental deletion of nearby starter blocks (for example dirt ring blocks).
+        blockLoc.getBlock().setType(Material.AIR, false);
+        blockLoc.clone().add(0, 1, 0).getBlock().setType(Material.AIR, false);
 
         // Single BEDROCK block directly under the oneblock
         world.getBlockAt(blockLoc.getBlockX(), blockLoc.getBlockY() - 1, blockLoc.getBlockZ()).setType(Material.BEDROCK, false);
@@ -1229,9 +1262,10 @@ public class EvolvedSkillsService {
 
         // Pre-seed the drop so the first break gives an item
         if (starterWM != null && starterWM.dropOverride != null) {
-            islandState.pendingDropOverride = new ItemStack(starterWM.dropOverride, starterWM.dropOverrideAmount);
+            islandState.pendingDropOverride = new ItemStack(
+                    normalizeStoneDropMaterial(starterWM.dropOverride), starterWM.dropOverrideAmount);
         } else if (starterWM == null || starterWM.mobSpawn == null) {
-            islandState.pendingDropOverride = new ItemStack(starterMaterial, 1);
+            islandState.pendingDropOverride = new ItemStack(normalizeStoneDropMaterial(starterMaterial), 1);
         }
 
         island.setIslandHome(anchorBase);
@@ -1252,43 +1286,70 @@ public class EvolvedSkillsService {
             Player p = member.asPlayer();
             if (p != null) onlineMembers.add(p);
         }
-
-        islandStates.remove(islandId);
-
-        generatorStates.entrySet().removeIf(e -> {
-            if (!islandId.equals(e.getValue().islandId)) return false;
-            placedBlocks.remove(e.getKey());
-            removeGeneratorHologram(e.getValue().hologramUUID);
-            return true;
-        });
-
-        nodeStates.entrySet().removeIf(e -> {
-            if (!islandId.equals(e.getValue().islandId)) return false;
-            placedBlocks.remove(e.getKey());
-            BukkitTask t = nodeCooldownTasks.remove(e.getKey());
-            if (t != null) t.cancel();
-            return true;
-        });
-
-        spawnerStates.entrySet().removeIf(e -> {
-            if (!islandId.equals(e.getValue().islandId)) return false;
-            placedBlocks.remove(e.getKey());
-            return true;
-        });
-
-        if (!onlineMembers.isEmpty()) {
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                for (Player p : onlineMembers) {
-                    if (p.isOnline()) p.performCommand("spawn");
-                }
-            }, 10L);
+        SuperiorPlayer disbandingPlayer = event.getPlayer();
+        if (disbandingPlayer != null) {
+            Player disbandingOnline = disbandingPlayer.asPlayer();
+            if (disbandingOnline != null && !onlineMembers.contains(disbandingOnline)) {
+                onlineMembers.add(disbandingOnline);
+            }
         }
 
-        savePersistentState();
+        if (!onlineMembers.isEmpty()) {
+            Set<UUID> forceFallbackPlayers = new HashSet<>();
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                for (Player p : onlineMembers) {
+                    if (p.isOnline()) {
+                        clearPlayerOverlayState(p);
+                        p.closeInventory();
+                        boolean issued = p.performCommand("spawn");
+                        if (!issued) {
+                            forceFallbackPlayers.add(p.getUniqueId());
+                            forceTeleportToServerSpawn(p);
+                        }
+                    }
+                }
+            }, 2L);
+
+            // Safety fallback: hard-teleport only players where /spawn could not be issued.
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                for (Player p : onlineMembers) {
+                    if (p.isOnline() && forceFallbackPlayers.contains(p.getUniqueId())) {
+                        forceTeleportToServerSpawn(p);
+                    }
+                }
+            }, 20L);
+        }
+
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            islandStates.remove(islandId);
+
+            generatorStates.entrySet().removeIf(e -> {
+                if (!islandId.equals(e.getValue().islandId)) return false;
+                placedBlocks.remove(e.getKey());
+                removeGeneratorHologram(e.getValue().hologramUUID);
+                return true;
+            });
+
+            nodeStates.entrySet().removeIf(e -> {
+                if (!islandId.equals(e.getValue().islandId)) return false;
+                placedBlocks.remove(e.getKey());
+                BukkitTask t = nodeCooldownTasks.remove(e.getKey());
+                if (t != null) t.cancel();
+                return true;
+            });
+
+            spawnerStates.entrySet().removeIf(e -> {
+                if (!islandId.equals(e.getValue().islandId)) return false;
+                placedBlocks.remove(e.getKey());
+                return true;
+            });
+
+            savePersistentState();
+        }, 1L);
     }
 
     private void teleportPlayerToIslandHome(Player player, SuperiorPlayer superiorPlayer) {
-        Island island = superiorPlayer.getIsland();
+        Island island = resolveOwnedIsland(superiorPlayer);
         if (island == null) {
             send(superiorPlayer, "&cYou don't have an island yet.");
             return;
@@ -1352,14 +1413,41 @@ public class EvolvedSkillsService {
             return center;
         }
 
-        if (superiorPlayer != null) {
-            Player player = superiorPlayer.asPlayer();
-            if (player != null) {
-                return player.getLocation();
+        return null;
+    }
+
+    private Island resolveOwnedIsland(SuperiorPlayer superiorPlayer) {
+        if (superiorPlayer == null) {
+            return null;
+        }
+
+        Island current = superiorPlayer.getIsland();
+        if (isIslandOwnedBy(current, superiorPlayer)) {
+            return current;
+        }
+
+        try {
+            Collection<Island> allIslands = plugin.getGrid().getIslands();
+            if (allIslands != null) {
+                for (Island candidate : allIslands) {
+                    if (isIslandOwnedBy(candidate, superiorPlayer)) {
+                        return candidate;
+                    }
+                }
             }
+        } catch (Throwable ignored) {
         }
 
         return null;
+    }
+
+    private boolean isIslandOwnedBy(Island island, SuperiorPlayer superiorPlayer) {
+        if (island == null || superiorPlayer == null || island.getOwner() == null) {
+            return false;
+        }
+
+        UUID ownerId = island.getOwner().getUniqueId();
+        return ownerId != null && ownerId.equals(superiorPlayer.getUniqueId());
     }
 
     public void handleCommand(PlayerCommandPreprocessEvent event) {
@@ -1388,6 +1476,11 @@ public class EvolvedSkillsService {
             case "is":
             case "islands": {
                 String sub = parts.length >= 2 ? parts[1].toLowerCase(Locale.ENGLISH) : "";
+                if (sub.equals("create")) {
+                    event.setCancelled(true);
+                    handleIslandCreateCommand(superiorPlayer);
+                    return;
+                }
                 boolean isHomeCmd = sub.isEmpty() || sub.equals("home") || sub.equals("tp")
                         || sub.equals("go") || sub.equals("teleport");
                 if (isHomeCmd) {
@@ -1443,6 +1536,44 @@ public class EvolvedSkillsService {
 
         PlayerState playerState = getPlayerState(superiorPlayer.getUniqueId());
         progressJourney(superiorPlayer, playerState, JourneyType.USE_COMMAND, cmd, 1L);
+    }
+
+    private void handleIslandCreateCommand(SuperiorPlayer superiorPlayer) {
+        if (superiorPlayer == null) {
+            return;
+        }
+
+        UUID playerId = superiorPlayer.getUniqueId();
+        if (playerId == null) {
+            return;
+        }
+
+        if (pendingIslandCreateTeleport.contains(playerId)) {
+            send(superiorPlayer, "&eCreating....");
+            return;
+        }
+
+        Island ownedIsland = resolveOwnedIsland(superiorPlayer);
+        if (ownedIsland != null) {
+            send(superiorPlayer, "&cYou already own an island.");
+            Player onlinePlayer = superiorPlayer.asPlayer();
+            if (onlinePlayer != null) {
+                teleportPlayerToIslandHome(onlinePlayer, superiorPlayer);
+            }
+            return;
+        }
+
+        send(superiorPlayer, "&eCreating....");
+        pendingIslandCreateTeleport.add(playerId);
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            try {
+                plugin.getGrid().createIsland(superiorPlayer, "oneblock", BigDecimal.ZERO, Biome.PLAINS, "");
+            } catch (Throwable throwable) {
+                pendingIslandCreateTeleport.remove(playerId);
+                send(superiorPlayer, "&cFailed to create island. Please try again.");
+            }
+        });
     }
 
     public void handleBlockPlace(BlockPlaceEvent event) {
@@ -1521,11 +1652,14 @@ public class EvolvedSkillsService {
         }
         if (hitNode != null) {
             event.setCancelled(true);
+            suppressBlockDrops(event);
+            event.setExpToDrop(0);
             Island hitNodeIsland = plugin.getGrid().getIslandByUUID(hitNode.islandId);
             if (hitNodeIsland == null || (!superiorPlayer.equals(hitNodeIsland.getOwner()) && !hitNodeIsland.isMember(superiorPlayer) && !hitNodeIsland.isCoop(superiorPlayer))) {
                 return;
             }
             final Block nodeBlock = event.getBlock();
+            suppressDropsAt(locationKey, 2L);
             nodeBlock.setType(Material.AIR, false);
             if (event.getPlayer().isSneaking()) {
                 nodeStates.remove(locationKey);
@@ -1564,6 +1698,8 @@ public class EvolvedSkillsService {
         }
         if (hitSpawner != null) {
             event.setCancelled(true);
+            suppressBlockDrops(event);
+            event.setExpToDrop(0);
             Island hitSpawnerIsland = plugin.getGrid().getIslandByUUID(hitSpawner.islandId);
             if (hitSpawnerIsland == null || (!superiorPlayer.equals(hitSpawnerIsland.getOwner()) && !hitSpawnerIsland.isMember(superiorPlayer) && !hitSpawnerIsland.isCoop(superiorPlayer))) {
                 return;
@@ -1571,6 +1707,7 @@ public class EvolvedSkillsService {
             spawnerStates.remove(locationKey);
             placedBlocks.remove(locationKey);
             final Block spawnerBlock = event.getBlock();
+            suppressDropsAt(locationKey, 2L);
             Bukkit.getScheduler().runTask(plugin, () -> spawnerBlock.setType(Material.AIR));
             giveItemToPlayer(event.getPlayer(), createSpawnerItem(hitSpawner.typeKey, 1));
             SpawnerTypeDefinition reclaimedSpDef = config.spawnerTypes.get(hitSpawner.typeKey);
@@ -1587,6 +1724,11 @@ public class EvolvedSkillsService {
         PlayerState playerState = getPlayerState(superiorPlayer.getUniqueId());
         IslandState islandState = getIslandState(locationIsland.getUniqueId());
 
+        if (islandState.oneblockAnchor == null &&
+                "oneblock".equalsIgnoreCase(locationIsland.getSchematicName())) {
+            tryAttachLegacyOneBlockAnchor(locationIsland, islandState, true);
+        }
+
         GeneratorState removedGenerator = generatorStates.remove(locationKey);
         if (removedGenerator != null) {
             Material blockType = event.getBlock().getType();
@@ -1600,9 +1742,12 @@ public class EvolvedSkillsService {
         }
         if (removedGenerator != null) {
             event.setCancelled(true);
+            suppressBlockDrops(event);
+            event.setExpToDrop(0);
             placedBlocks.remove(locationKey);
             removeGeneratorHologram(removedGenerator.hologramUUID);
             final Block genBlock = event.getBlock();
+            suppressDropsAt(locationKey, 2L);
             Bukkit.getScheduler().runTask(plugin, () -> genBlock.setType(Material.AIR));
             giveItemToPlayer(event.getPlayer(), createGeneratorItem(removedGenerator.trackKey, 1));
             send(superiorPlayer, msg("generator-reclaimed"));
@@ -1611,6 +1756,9 @@ public class EvolvedSkillsService {
 
         if (isOneBlockAnchorBreak(event.getBlock(), islandState)) {
             event.setCancelled(true);
+            suppressBlockDrops(event);
+            event.setExpToDrop(0);
+            suppressDropsAt(locationKey, 2L);
             final Material brokenType = event.getBlock().getType();
             ItemStack dropOverrideStack = islandState.pendingDropOverride;
             if (dropOverrideStack == null) {
@@ -1620,6 +1768,9 @@ public class EvolvedSkillsService {
                 }
             }
             if (dropOverrideStack != null) {
+                dropOverrideStack = new ItemStack(
+                        normalizeStoneDropMaterial(dropOverrideStack.getType()),
+                        Math.max(1, dropOverrideStack.getAmount()));
                 islandState.pendingDropOverride = null;
             }
             processOneBlockBreak(superiorPlayer, playerState, locationIsland, islandState, event.getBlock(), brokenType);
@@ -2513,7 +2664,10 @@ public class EvolvedSkillsService {
                 Player p = Bukkit.getPlayer(entry.getKey());
                 if (p == null) continue;
                 SuperiorPlayer sp = plugin.getPlayers().getSuperiorPlayer(p);
-                if (sp == null || sp.getIsland() == null) continue;
+                if (sp == null || sp.getIsland() == null) {
+                    hideJourneyBossBar(p);
+                    continue;
+                }
                 showJourneyBossBar(sp, entry.getValue());
             }
         }, 200L, 200L);
@@ -2592,7 +2746,7 @@ public class EvolvedSkillsService {
         } else if (mobToSpawn != null) {
             islandState.pendingDropOverride = null;
         } else {
-            islandState.pendingDropOverride = new ItemStack(nextMaterial, 1);
+            islandState.pendingDropOverride = new ItemStack(normalizeStoneDropMaterial(nextMaterial), 1);
         }
         islandState.pendingMobSpawn = null;
 
@@ -2600,27 +2754,43 @@ public class EvolvedSkillsService {
         final Material displayMaterial = (mobToSpawn != null || UNSTABLE_BLOCK_TYPES.contains(nextMaterial))
                 ? config.oneBlockFallbackMaterial : nextMaterial;
 
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            block.setType(displayMaterial, false);
-            // After the block respawns, clip any player whose feet are inside it
-            // upward to the surface so they land on top instead of being pushed sideways
-            double safeY = block.getY() + 1.01;
-            for (org.bukkit.entity.Entity e : block.getWorld().getNearbyEntities(
-                    block.getLocation().add(0.5, 1.0, 0.5), 0.7, 1.2, 0.7)) {
-                if (!(e instanceof Player)) continue;
-                Location eLoc = e.getLocation();
-                if (eLoc.getY() < safeY) {
-                    ((Player) e).teleport(new Location(eLoc.getWorld(), eLoc.getX(), safeY, eLoc.getZ(), eLoc.getYaw(), eLoc.getPitch()));
-                }
-            }
-            if (mobToSpawn != null) {
-                spawnMobFromOneBlock(block, mobToSpawn, islandState);
-            }
-        });
+        block.setType(displayMaterial, false);
+        if (mobToSpawn != null) {
+            Bukkit.getScheduler().runTask(plugin, () -> spawnMobFromOneBlock(block, mobToSpawn, islandState));
+        }
     }
 
     private boolean isOneBlockAnchorBreak(Block block, IslandState islandState) {
         return islandState.oneblockAnchor != null && islandState.oneblockAnchor.matches(block.getLocation());
+    }
+
+    private boolean tryAttachLegacyOneBlockAnchor(Island island, IslandState islandState, boolean fromBreakPath) {
+        if (islandState == null || islandState.oneblockAnchor != null) {
+            return islandState != null && islandState.oneblockAnchor != null;
+        }
+
+        Location anchorBase = resolveOneBlockAnchorBase(island, null);
+        if (anchorBase == null || anchorBase.getWorld() == null) {
+            return false;
+        }
+
+        Block candidate = anchorBase.clone().subtract(0, 1, 0).getBlock();
+        Material candidateType = candidate.getType();
+        if (candidateType == AIR_MATERIAL) {
+            return false;
+        }
+
+        islandState.oneblockAnchor = LocationKey.fromBlock(candidate);
+
+        if (islandState.pendingDropOverride == null && candidateType != Material.BEDROCK) {
+            islandState.pendingDropOverride = new ItemStack(normalizeStoneDropMaterial(candidateType), 1);
+        }
+
+        if (fromBreakPath) {
+            recentBreakers.put(LocationKey.fromBlock(candidate), null);
+        }
+
+        return true;
     }
 
     private void spawnMobFromOneBlock(Block block, String entityTypeName, IslandState islandState) {
@@ -2994,7 +3164,7 @@ public class EvolvedSkillsService {
         PlayerState playerState = getPlayerState(superiorPlayer.getUniqueId());
 
         superiorPlayer.runIfOnline(player -> {
-            giveItemToPlayer(player, new ItemStack(definition.outputMaterial, 1));
+            giveItemToPlayer(player, new ItemStack(normalizeStoneDropMaterial(definition.outputMaterial), 1));
             playEffect(player, "sounds:item_pick_up", 0.3f, 1.0f);
         });
 
@@ -3319,12 +3489,16 @@ public class EvolvedSkillsService {
         for (Material material : keys) {
             int amount = state.storage.getOrDefault(material, 0);
             if (amount <= 0) continue;
-            giveItemToPlayer(player, new ItemStack(material, amount));
+            giveItemToPlayer(player, new ItemStack(normalizeStoneDropMaterial(material), amount));
             state.storage.remove(material);
         }
 
         playEffect(player, "sounds:item_pick_up", 0.5f, 1.0f);
         send(player, msg("generator-claimed").replace("%track%", state.trackKey));
+    }
+
+    private Material normalizeStoneDropMaterial(Material material) {
+        return material == Material.STONE ? Material.COBBLESTONE : material;
     }
 
     private void sendSkillsStatus(CommandSender sender, SuperiorPlayer superiorPlayer, PlayerState state) {
@@ -5147,7 +5321,7 @@ public class EvolvedSkillsService {
     private int getCurrentJourneyTaskIndex(PlayerState playerState, List<JourneyTaskDefinition> tasks) {
         for (int i = 0; i < tasks.size(); i++) {
             JourneyTaskDefinition task = tasks.get(i);
-            if (!playerState.claimedJourney.contains(task.key)) {
+            if (!playerState.completedJourney.contains(task.key)) {
                 return i;
             }
         }
@@ -5158,15 +5332,31 @@ public class EvolvedSkillsService {
     private void checkAndAutoCompleteCurrentJourneyTask(SuperiorPlayer superiorPlayer, PlayerState playerState) {
         if (config == null || config.journeyTasks.isEmpty()) return;
         List<JourneyTaskDefinition> tasks = new ArrayList<>(config.journeyTasks.values());
-        int idx = getCurrentJourneyTaskIndex(playerState, tasks);
-        if (idx < 0 || idx >= tasks.size()) return;
-        JourneyTaskDefinition task = tasks.get(idx);
-        if (playerState.claimedJourney.contains(task.key) || playerState.completedJourney.contains(task.key)) return;
-        if (isJourneyTaskAlreadyMet(superiorPlayer, playerState, task)) {
+        boolean completedAny = false;
+
+        for (int i = 0; i < tasks.size(); i++) {
+            int idx = getCurrentJourneyTaskIndex(playerState, tasks);
+            if (idx < 0 || idx >= tasks.size()) {
+                break;
+            }
+
+            JourneyTaskDefinition task = tasks.get(idx);
+            if (playerState.claimedJourney.contains(task.key) || playerState.completedJourney.contains(task.key)) {
+                break;
+            }
+
+            if (!isJourneyTaskAlreadyMet(superiorPlayer, playerState, task)) {
+                break;
+            }
+
             playerState.journeyProgress.put(task.key, task.target);
             playerState.completedJourney.add(task.key);
+            sendJourneyTaskCompleted(superiorPlayer, task);
+            completedAny = true;
+        }
+
+        if (completedAny) {
             showJourneyBossBar(superiorPlayer, playerState);
-            send(superiorPlayer, msg("journey-task-complete").replace("%task%", task.displayName));
         }
     }
 
@@ -5252,6 +5442,55 @@ public class EvolvedSkillsService {
         showJourneyBossBar(superiorPlayer, playerState);
         checkAndAutoCompleteCurrentJourneyTask(superiorPlayer, playerState);
         return true;
+    }
+
+    private void sendJourneyTaskCompleted(SuperiorPlayer superiorPlayer, JourneyTaskDefinition task) {
+        send(superiorPlayer, msg("journey-task-complete").replace("%task%", task.displayName));
+
+        superiorPlayer.runIfOnline(player -> {
+            String soundName = msg("journey-task-complete-sound");
+            if (soundName == null || soundName.isEmpty() || "journey-task-complete-sound".equals(soundName)) {
+                soundName = "entity.experience_orb.pickup";
+            }
+
+            try {
+                org.bukkit.Sound sound = org.bukkit.Sound.valueOf(soundName.toUpperCase(Locale.ENGLISH));
+                player.playSound(player.getLocation(), sound, 1.0f, 1.1f);
+            } catch (Exception ex) {
+                playEffect(player, "sounds:xp", 1.0f, 1.1f);
+            }
+
+            String clickLabel = msg("journey-task-claim-label").replace("%task%", task.displayName);
+            if ("journey-task-claim-label".equals(clickLabel)) {
+                clickLabel = "&a[Click here to claim]";
+            }
+
+            String hoverText = msg("journey-task-claim-hover").replace("%task%", task.displayName);
+            if ("journey-task-claim-hover".equals(hoverText)) {
+                hoverText = "&7Open your Journey menu";
+            }
+
+            String command = msg("journey-task-claim-command").replace("%task%", task.displayName);
+            if ("journey-task-claim-command".equals(command) || command.trim().isEmpty()) {
+                command = "/journey";
+            }
+
+            String prefixText = msg("journey-task-claim-prefix").replace("%task%", task.displayName);
+            if (!"journey-task-claim-prefix".equals(prefixText) && !prefixText.trim().isEmpty()) {
+                player.sendMessage(color(prefixText));
+            }
+
+            net.md_5.bungee.api.chat.TextComponent clickable =
+                    new net.md_5.bungee.api.chat.TextComponent(color(clickLabel));
+            clickable.setClickEvent(new net.md_5.bungee.api.chat.ClickEvent(
+                    net.md_5.bungee.api.chat.ClickEvent.Action.RUN_COMMAND, command));
+            clickable.setHoverEvent(new net.md_5.bungee.api.chat.HoverEvent(
+                    net.md_5.bungee.api.chat.HoverEvent.Action.SHOW_TEXT,
+                    new net.md_5.bungee.api.chat.TextComponent[]{
+                            new net.md_5.bungee.api.chat.TextComponent(color(hoverText))
+                    }));
+            player.spigot().sendMessage(clickable);
+        });
     }
 
     private boolean performPerkUpgrade(SuperiorPlayer superiorPlayer, PlayerState playerState,
@@ -6309,7 +6548,7 @@ public class EvolvedSkillsService {
             playerState.journeyProgress.put(currentTask.key, newVal);
             if (newVal >= currentTask.target && !playerState.completedJourney.contains(currentTask.key)) {
                 playerState.completedJourney.add(currentTask.key);
-                send(superiorPlayer, msg("journey-task-complete").replace("%task%", currentTask.displayName));
+                sendJourneyTaskCompleted(superiorPlayer, currentTask);
             }
             showJourneyBossBar(superiorPlayer, playerState);
             return;
@@ -6321,7 +6560,7 @@ public class EvolvedSkillsService {
             playerState.journeyProgress.put(currentTask.key, newCount);
             if (newCount >= currentTask.target && !playerState.completedJourney.contains(currentTask.key)) {
                 playerState.completedJourney.add(currentTask.key);
-                send(superiorPlayer, msg("journey-task-complete").replace("%task%", currentTask.displayName));
+                sendJourneyTaskCompleted(superiorPlayer, currentTask);
             }
             showJourneyBossBar(superiorPlayer, playerState);
             return;
@@ -6333,7 +6572,7 @@ public class EvolvedSkillsService {
 
         if (cappedProgress >= currentTask.target) {
             playerState.completedJourney.add(currentTask.key);
-            send(superiorPlayer, msg("journey-task-complete").replace("%task%", currentTask.displayName));
+            sendJourneyTaskCompleted(superiorPlayer, currentTask);
         }
         showJourneyBossBar(superiorPlayer, playerState);
     }
@@ -6849,6 +7088,74 @@ public class EvolvedSkillsService {
             activeBossBarTasks.put(uid, task);
         } catch (Exception e) {
             plugin.getLogger().warning("[EvolvedSkills] Boss bar failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
+    }
+
+    private void clearPlayerOverlayState(Player player) {
+        if (player == null) {
+            return;
+        }
+
+        hideJourneyBossBar(player);
+        hideActiveBossBar(player);
+        player.closeInventory();
+    }
+
+    private void hideJourneyBossBar(Player player) {
+        if (player == null) {
+            return;
+        }
+
+        Object journeyBar = journeyBossBars.remove(player.getUniqueId());
+        if (journeyBar == null) {
+            return;
+        }
+
+        try {
+            Class<?> bossBarClass = Class.forName("org.bukkit.boss.BossBar");
+            bossBarClass.getMethod("setVisible", boolean.class).invoke(journeyBar, false);
+            bossBarClass.getMethod("removeAll").invoke(journeyBar);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void hideActiveBossBar(Player player) {
+        if (player == null) {
+            return;
+        }
+
+        UUID uid = player.getUniqueId();
+        BukkitTask task = activeBossBarTasks.remove(uid);
+        if (task != null) {
+            task.cancel();
+        }
+
+        Object activeBar = activeBossBars.remove(uid);
+        if (activeBar == null) {
+            return;
+        }
+
+        try {
+            Class<?> bossBarClass = Class.forName("org.bukkit.boss.BossBar");
+            bossBarClass.getMethod("setVisible", boolean.class).invoke(activeBar, false);
+            bossBarClass.getMethod("removeAll").invoke(activeBar);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void forceTeleportToServerSpawn(Player player) {
+        if (player == null || !player.isOnline()) {
+            return;
+        }
+
+        if (Bukkit.getWorlds().isEmpty()) {
+            return;
+        }
+
+        Location spawn = Bukkit.getWorlds().get(0).getSpawnLocation();
+        if (spawn != null) {
+            player.teleport(spawn);
+            player.setFallDistance(0F);
         }
     }
 
@@ -7697,6 +8004,14 @@ public class EvolvedSkillsService {
         } catch (Exception ignored) {}
     }
 
+    private void suppressDropsAt(LocationKey locationKey, long ticks) {
+        if (locationKey == null) {
+            return;
+        }
+        suppressDropLocations.add(locationKey);
+        Bukkit.getScheduler().runTaskLater(plugin, () -> suppressDropLocations.remove(locationKey), Math.max(1L, ticks));
+    }
+
     private void giveItemToPlayer(Player player, ItemStack itemStack) {
         if (itemStack == null || itemStack.getType() == AIR_MATERIAL || itemStack.getAmount() <= 0) {
             return;
@@ -7966,6 +8281,7 @@ public class EvolvedSkillsService {
 
     private EvolvedConfig loadConfiguration(File moduleFolder) {
         YamlConfiguration yaml = loadModuleYaml(moduleFolder, "config.yml");
+        YamlConfiguration messagesYaml = loadModuleYaml(moduleFolder, "messages.yml");
         YamlConfiguration itemsYaml = loadModuleYaml(moduleFolder, "items.yml");
         YamlConfiguration milestonesYaml = loadModuleYaml(moduleFolder, "milestones.yml");
         YamlConfiguration nodesYaml = loadModuleYaml(moduleFolder, "nodes.yml");
@@ -8096,6 +8412,14 @@ public class EvolvedSkillsService {
             for (String key : messagesSection.getKeys(false)) {
                 String val = messagesSection.getString(key);
                 if (val != null) msgs.put(key, val);
+            }
+        }
+        if (messagesYaml != null) {
+            for (String key : messagesYaml.getKeys(false)) {
+                String val = messagesYaml.getString(key);
+                if (val != null) {
+                    msgs.put(key, val);
+                }
             }
         }
         result.messages = msgs;
@@ -9441,12 +9765,80 @@ public class EvolvedSkillsService {
 
         @Override
         public String onRequest(org.bukkit.OfflinePlayer player, String params) {
-            if (player == null) return "";
-            if ("player_level".equals(params)) {
-                PlayerState ps = playerStates.get(player.getUniqueId());
-                return ps == null ? "0" : String.valueOf(ps.playerLevel);
+            if (player == null || params == null || params.isEmpty()) {
+                return "";
             }
-            return null;
+
+            String key = params.toLowerCase(Locale.ENGLISH);
+            PlayerState ps = playerStates.get(player.getUniqueId());
+            if (ps == null) {
+                return "0";
+            }
+
+            switch (key) {
+                case "player_level":
+                    return String.valueOf(ps.playerLevel);
+                case "player_xp":
+                    return String.valueOf(ps.playerXp);
+                case "player_next_xp":
+                case "next_player_xp":
+                    return String.valueOf(getRequiredXpForLevel(ps.playerLevel + 1, config.playerLevelThresholds, config.playerLevelStepXp));
+
+                case "skill_level":
+                case "mining_level":
+                    return String.valueOf(ps.miningLevel);
+                case "mining_xp":
+                    return String.valueOf(ps.miningXp);
+                case "mining_next_xp":
+                case "next_mining_xp":
+                    return String.valueOf(getRequiredXpForLevel(ps.miningLevel + 1, config.skillLevelThresholds, config.skillLevelStepXp));
+
+                case "farming_level":
+                    return String.valueOf(ps.farmingLevel);
+                case "farming_xp":
+                    return String.valueOf(ps.farmingXp);
+                case "farming_next_xp":
+                case "next_farming_xp":
+                    return String.valueOf(getRequiredXpForLevel(ps.farmingLevel + 1, config.skillLevelThresholds, config.skillLevelStepXp));
+
+                case "slaying_level":
+                    return String.valueOf(ps.slayingLevel);
+                case "slaying_xp":
+                    return String.valueOf(ps.slayingXp);
+                case "slaying_next_xp":
+                case "next_slaying_xp":
+                    return String.valueOf(getRequiredXpForLevel(ps.slayingLevel + 1, config.skillLevelThresholds, config.skillLevelStepXp));
+
+                case "daily_oneblock_broken":
+                    return String.valueOf(ps.dailyOneblockBroken);
+                case "daily_oneblock_target":
+                    return String.valueOf(Math.max(0, config.dailyOneBlockTargetBreaks));
+
+                case "island_oneblock_total":
+                case "oneblock_total_broken": {
+                    Island island = null;
+                    Player onlinePlayer = player.getPlayer();
+                    if (onlinePlayer != null) {
+                        island = plugin.getGrid().getIslandAt(onlinePlayer.getLocation());
+                    }
+                    if (island == null) {
+                        SuperiorPlayer superiorPlayer = plugin.getPlayers().getSuperiorPlayer(player.getUniqueId());
+                        island = superiorPlayer == null ? null : superiorPlayer.getIsland();
+                    }
+                    if (island == null) {
+                        return "0";
+                    }
+                    IslandState islandState = getIslandState(island.getUniqueId());
+                    return islandState == null ? "0" : String.valueOf(islandState.oneblockBrokenTotal);
+                }
+                default:
+                    return null;
+            }
+        }
+
+        @Override
+        public String onPlaceholderRequest(Player player, String params) {
+            return onRequest(player, params);
         }
     }
 
